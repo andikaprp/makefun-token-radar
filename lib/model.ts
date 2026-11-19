@@ -118,7 +118,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'fitted-comps-1';
+export const MODEL_VERSION = 'fitted-comps-2';
 
 /** Why the snapshot is not one this model can score. */
 export class SnapshotError extends Error {
@@ -340,9 +340,14 @@ export interface FittedModel {
 }
 
 /** Fit the model on a comp set (the full set for the board, a subset inside the backtest's folds). */
-export function fitModel(comps: SnapshotProtocol[], model: ModelConstants = MODEL): FittedModel {
+export function fitModel(comps: SnapshotProtocol[], model: ModelConstants = MODEL, robust = false): FittedModel {
   const medChange = medianCompChange(comps);
-  const curve = fitCurve(comps, medChange, model);
+  const curve = robust
+    ? huberOls(
+        comps.map((p) => Math.log10(forwardTvl(p, medChange, model))),
+        comps.map((p) => Math.log10(p.mcap_usd!)),
+      )
+    : fitCurve(comps, medChange, model);
   return { curve, premiums: familyPremiums(comps, curve, medChange, model), medChange };
 }
 
@@ -365,6 +370,8 @@ export interface BacktestVariant {
   loo_within3: number;
   split_miss: number;
   split_within3: number;
+  /** Spearman rank correlation between the leave-one-out predictions and the real caps. */
+  loo_rho: number;
 }
 
 /** The model's evidence: the ablation ladder, the residual bands, and how the bands held. */
@@ -383,12 +390,47 @@ type Predictor = (train: SnapshotProtocol[]) => (p: SnapshotProtocol) => number;
 
 const missOf = (pred: number, actual: number): number => Math.max(pred / actual, actual / pred);
 
-function scorePredictor(comps: SnapshotProtocol[], make: Predictor): { loo_miss: number; loo_within3: number; split_miss: number; split_within3: number; looResid: number[] } {
+/** Average ranks (ties share a rank), in the input's own order. */
+function ranksOf(values: number[]): number[] {
+  const order = values.map((v, i) => [v, i] as const).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const ranks = new Array<number>(values.length);
+  let i = 0;
+  while (i < order.length) {
+    let j = i;
+    while (j + 1 < order.length && order[j + 1]![0] === order[i]![0]) j++;
+    const avg = (i + j) / 2 + 1;
+    for (let k = i; k <= j; k++) ranks[order[k]![1]] = avg;
+    i = j + 1;
+  }
+  return ranks;
+}
+
+/** Spearman rank correlation between two equal-length series. */
+function spearman(xs: number[], ys: number[]): number {
+  const rx = ranksOf(xs);
+  const ry = ranksOf(ys);
+  const n = xs.length;
+  const mx = rx.reduce((s, v) => s + v, 0) / n;
+  const my = ry.reduce((s, v) => s + v, 0) / n;
+  let sxy = 0;
+  let sxx = 0;
+  let syy = 0;
+  for (let i = 0; i < n; i++) {
+    sxy += (rx[i]! - mx) * (ry[i]! - my);
+    sxx += (rx[i]! - mx) ** 2;
+    syy += (ry[i]! - my) ** 2;
+  }
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0;
+}
+
+function scorePredictor(comps: SnapshotProtocol[], make: Predictor): { loo_miss: number; loo_within3: number; split_miss: number; split_within3: number; loo_rho: number; looResid: number[] } {
   const looMisses: number[] = [];
   const looResid: number[] = [];
+  const looPreds: number[] = [];
   comps.forEach((p, i) => {
     const predict = make(comps.filter((_, j) => j !== i));
     const pred = predict(p);
+    looPreds.push(pred);
     looMisses.push(missOf(pred, p.mcap_usd!));
     looResid.push(Math.log10(p.mcap_usd! / pred));
   });
@@ -401,8 +443,37 @@ function scorePredictor(comps: SnapshotProtocol[], make: Predictor): { loo_miss:
     loo_within3: looMisses.filter((m) => m <= 3).length / looMisses.length,
     split_miss: median(splitMisses),
     split_within3: splitMisses.filter((m) => m <= 3).length / splitMisses.length,
+    loo_rho: spearman(looPreds, comps.map((p) => p.mcap_usd!)),
     looResid,
   };
+}
+
+/** Least squares with Huber weights: three IRLS passes, the scale from the residuals' MAD. */
+function huberOls(xs: number[], ys: number[]): CurveFit {
+  let fit = ols(xs, ys);
+  for (let iter = 0; iter < 3; iter++) {
+    const resid = xs.map((x, i) => ys[i]! - (fit.a + fit.b * x));
+    const centre = median(resid);
+    const scale = 1.4826 * median(resid.map((r) => Math.abs(r - centre)));
+    if (!(scale > 1e-9)) return fit;
+    const k = 1.345 * scale;
+    const w = resid.map((r) => Math.min(1, k / Math.max(Math.abs(r - centre), 1e-12)));
+    let sw = 0;
+    let mx = 0;
+    let my = 0;
+    for (let i = 0; i < xs.length; i++) { sw += w[i]!; mx += w[i]! * xs[i]!; my += w[i]! * ys[i]!; }
+    mx /= sw;
+    my /= sw;
+    let sxy = 0;
+    let sxx = 0;
+    for (let i = 0; i < xs.length; i++) {
+      sxy += w[i]! * (xs[i]! - mx) * (ys[i]! - my);
+      sxx += w[i]! * (xs[i]! - mx) ** 2;
+    }
+    const b = sxx > 0 ? sxy / sxx : 0;
+    fit = { a: my - b * mx, b };
+  }
+  return fit;
 }
 
 /** The variants the ladder compares, weakest first; each is a way of pricing a comp from the rest. */
@@ -423,8 +494,12 @@ function variantMakers(model: ModelConstants, asOf: string): { key: string; labe
     const fit = fitModel(train, model);
     return (p) => launchValue(p, fit, model).value;
   };
+  const modelFit: Predictor = (train) => {
+    const fit = fitModel(train, model, true);
+    return (p) => launchValue(p, fit, model).value;
+  };
   const fullAge: Predictor = (train) => {
-    const fit = fitModel(train, model);
+    const fit = fitModel(train, model, true);
     const dated = train.filter((p) => p.listed_at !== null);
     const stage = dated.length > 10
       ? ols(
@@ -439,12 +514,29 @@ function variantMakers(model: ModelConstants, asOf: string): { key: string; labe
       return base * Math.pow(10, stage.a + stage.b * Math.log10(1 + age));
     };
   };
+  const rawcat: Predictor = (train) => {
+    const fit = fitModel(train, model, true);
+    const ratios = new Map<string, number[]>();
+    for (const p of train) {
+      const cv = Math.pow(10, fit.curve.a + fit.curve.b * Math.log10(forwardTvl(p, fit.medChange, model)));
+      const list = ratios.get(p.category ?? '') ?? [];
+      list.push(p.mcap_usd! / cv);
+      ratios.set(p.category ?? '', list);
+    }
+    const prem = new Map([...ratios].map(([c, list]) => [c, median(list)] as const));
+    return (p) => {
+      const cv = Math.pow(10, fit.curve.a + fit.curve.b * Math.log10(forwardTvl(p, fit.medChange, model)));
+      return cv * (prem.get(p.category ?? '') ?? 1);
+    };
+  };
   return [
     { key: 'flat', label: 'one flat multiple of TVL', make: flat },
     { key: 'curve', label: '+ size curve (slope on log TVL)', make: curveOnly(false) },
     { key: 'growth', label: '+ growth carry on forward TVL', make: curveOnly(true) },
-    { key: 'full', label: '+ family premium (the model)', make: full },
+    { key: 'full', label: '+ family premium', make: full },
+    { key: 'model', label: '+ Huber-robust curve (the model)', make: modelFit },
     { key: 'age', label: '+ age inside the price (tested, not kept)', make: fullAge },
+    { key: 'rawcat', label: '+ raw category premiums (tested, not kept)', make: rawcat },
   ];
 }
 
@@ -452,13 +544,13 @@ function variantMakers(model: ModelConstants, asOf: string): { key: string; labe
 export function backtestModel(comps: SnapshotProtocol[], asOf: string, model: ModelConstants = MODEL): Backtest {
   const makers = variantMakers(model, asOf);
   const scored = makers.map((v) => ({ ...v, score: scorePredictor(comps, v.make) }));
-  const fullScore = scored.find((s) => s.key === 'full')!.score;
+  const fullScore = scored.find((s) => s.key === 'model')!.score;
   const band25: [number, number] = [Math.pow(10, quantile(fullScore.looResid, 0.25)), Math.pow(10, quantile(fullScore.looResid, 0.75))];
   const band10: [number, number] = [Math.pow(10, quantile(fullScore.looResid, 0.1)), Math.pow(10, quantile(fullScore.looResid, 0.9))];
   // Band honesty on the time split: fit on the oldest half, ask where the newer caps fell.
   const dated = comps.filter((p) => p.listed_at !== null).sort((a, b) => (a.listed_at! < b.listed_at! ? -1 : 1));
   const half = Math.floor(dated.length / 2);
-  const fit = fitModel(dated.slice(0, half), model);
+  const fit = fitModel(dated.slice(0, half), model, true);
   let in25 = 0;
   let in10 = 0;
   for (const p of dated.slice(half)) {
@@ -476,12 +568,78 @@ export function backtestModel(comps: SnapshotProtocol[], asOf: string, model: Mo
       loo_within3: round4(s.score.loo_within3),
       split_miss: round2(s.score.split_miss),
       split_within3: round4(s.score.split_within3),
+      loo_rho: round4(s.score.loo_rho),
     })),
     band25: [round4(band25[0]), round4(band25[1])],
     band10: [round4(band10[0]), round4(band10[1])],
     band_holds: { in25_75: in25, in10_90: in10, n },
     split_n: n,
   };
+}
+
+// ---------------------------------------------------------------- refit stability
+
+/** How the board's head survives refitting: bootstrap refits of the curve, and each cut's own top set. */
+export interface Stability {
+  refits: number;
+  top_n: number;
+  /** Of the model's top_n, how many sit inside the top_n in at least 80% of the refits. */
+  holds: number;
+  /** The median refit overlap with the model's top_n. */
+  median_overlap: number;
+  /** Per ladder variant: how many of the model's top_n that variant's own board keeps in its top_n. */
+  kept: Record<string, number>;
+}
+
+/** A small deterministic PRNG (mulberry32): the refits must land identically on every run. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Refit the model on bootstrap resamples of the comps (seeded, so the run is deterministic)
+ * and re-rank the board each time: how much of the head is the fit, and how much is luck.
+ * Also prices the board under each ladder variant fitted on all comps, and counts how many
+ * of the model's top_n each variant's own ranking keeps - the ablation, stated in ranks.
+ */
+export function refitStability(comps: SnapshotProtocol[], ranked: SnapshotProtocol[], topSlugs: string[], asOf: string, model: ModelConstants = MODEL): Stability {
+  const topSet = new Set(topSlugs);
+  const topN = topSlugs.length;
+  const topOf = (price: (p: SnapshotProtocol) => number): Set<string> => {
+    const scored = ranked.map((p) => ({ slug: p.slug, v: price(p) }));
+    scored.sort((a, b) => b.v - a.v || (a.slug < b.slug ? -1 : 1));
+    return new Set(scored.slice(0, topN).map((s) => s.slug));
+  };
+  const kept: Record<string, number> = {};
+  for (const v of variantMakers(model, asOf)) {
+    const predict = v.make(comps);
+    const own = topOf(predict);
+    kept[v.key] = [...topSet].filter((s) => own.has(s)).length;
+  }
+  const REFITS = 200;
+  const rng = mulberry32(20261119);
+  const tally = new Map<string, number>();
+  const overlaps: number[] = [];
+  for (let r = 0; r < REFITS; r++) {
+    const sample = Array.from({ length: comps.length }, () => comps[Math.floor(rng() * comps.length)]!);
+    const fit = fitModel(sample, model, true);
+    const own = topOf((p) => launchValue(p, fit, model).value);
+    let overlap = 0;
+    for (const s of own) {
+      tally.set(s, (tally.get(s) ?? 0) + 1);
+      if (topSet.has(s)) overlap++;
+    }
+    overlaps.push(overlap);
+  }
+  const holds = topSlugs.filter((s) => (tally.get(s) ?? 0) >= 0.8 * REFITS).length;
+  return { refits: REFITS, top_n: topN, holds, median_overlap: median(overlaps), kept };
 }
 
 // ---------------------------------------------------------------- launch odds
@@ -547,6 +705,67 @@ export function launchOdds(p: SnapshotProtocol, om: OddsModel, asOf: string, mod
   const denom = 1 - everCat * done;
   const odds = denom > 0 ? (everCat * (1 - done)) / denom : everCat;
   return clamp(odds, model.odds_floor, model.odds_cap);
+}
+
+/** The odds model, held out: fitted on the older half of the dated protocols, calling the newer half. */
+export interface OddsCheck {
+  /** Newer-half protocols the check called (dated only). */
+  n: number;
+  /** Older-half protocols the check fitted on. */
+  train_n: number;
+  /** Share of the newer half whose recorded-token status the older-half model called at even odds. */
+  called_right: number;
+  /** What always guessing the newer half's majority status would score on the same protocols. */
+  base_called: number;
+  /** The newer half's own recorded-token share (the majority the base rate guesses from). */
+  share_launched: number;
+  /** Rank discrimination (AUC) of the implied already-launched share against recorded status. */
+  auc: number;
+}
+
+/**
+ * Fit the odds model on the older half of the dated protocols alone, then ask it, for each
+ * newer protocol, whether that protocol has already recorded a token by its age: predicted
+ * share = its category's ever-rate x the share of its launches this age has already used.
+ * A call at even odds or better counts as "already launched". Deterministic: the split is
+ * by listed date, ties broken by slug.
+ */
+export function oddsCheck(snapshot: Snapshot): OddsCheck {
+  const dated = snapshot.protocols
+    .map((p) => ({ p, age: ageDays(snapshot.as_of, p.listed_at) }))
+    .filter((x): x is { p: SnapshotProtocol; age: number } => x.age !== null)
+    .sort((a, b) => (a.p.listed_at! < b.p.listed_at! ? -1 : a.p.listed_at! > b.p.listed_at! ? 1 : a.p.slug < b.p.slug ? -1 : 1));
+  const half = Math.floor(dated.length / 2);
+  const train = dated.slice(0, half).map((x) => x.p);
+  const test = dated.slice(half);
+  const om = buildOddsModel({ ...snapshot, protocols: train });
+  let called = 0;
+  const preds = test.map((x) => {
+    const everCat = om.catEver(x.p.category);
+    const done = om.ever_global > 0 ? clamp(om.rateAt(x.age) / om.ever_global, 0, 1) : 0;
+    const pAlready = everCat * done;
+    if ((pAlready >= 0.5) === recordsToken(x.p)) called++;
+    return { p: pAlready, y: recordsToken(x.p) ? 1 : 0 };
+  });
+  const pos = preds.filter((t) => t.y === 1);
+  const neg = preds.filter((t) => t.y === 0);
+  let wins = 0;
+  let ties = 0;
+  for (const a of pos) {
+    for (const b of neg) {
+      if (a.p > b.p) wins++;
+      else if (a.p === b.p) ties++;
+    }
+  }
+  const share = test.length > 0 ? pos.length / test.length : 0;
+  return {
+    n: test.length,
+    train_n: train.length,
+    called_right: test.length > 0 ? round4(called / test.length) : 0,
+    base_called: round4(Math.max(share, 1 - share)),
+    share_launched: round4(share),
+    auc: pos.length > 0 && neg.length > 0 ? round4((wins + 0.5 * ties) / (pos.length * neg.length)) : 0,
+  };
 }
 
 // ---------------------------------------------------------------- farm plans
@@ -642,11 +861,11 @@ export function farmPlan(p: SnapshotProtocol, launchValueUsd: number, odds: numb
   const stopTvl = Math.round(p.tvl_usd * 0.7);
   const steps: FarmStep[] = [
     {
-      text: `Move ${money(deposit)} to a fresh wallet on ${chain} used for nothing else, and keep the fee money back in it.`,
+      text: `Move ${money(deposit)} to a fresh ${chain} wallet used for nothing else; keep the fee money in it.`,
       cost: money(1.5 + gas), time: '15 minutes', cost_usd: round2(1.5 + gas), minutes: 15,
     },
     {
-      text: `Open ${p.name}'s own page from the index's link, never a search ad, and check the contract, the audits and that it still lists no token.`,
+      text: `Open ${p.name}'s own page from the index's link (never a search ad); check the contract, the audits, and that it still lists no token.`,
       cost: 'nothing', time: '15 minutes', cost_usd: 0, minutes: 15,
     },
     {
@@ -654,19 +873,19 @@ export function farmPlan(p: SnapshotProtocol, launchValueUsd: number, odds: numb
       cost: money(gas * 2), time: '15 minutes', cost_usd: round2(gas * 2), minutes: 15,
     },
     {
-      text: `Once a week for ${weeks} weeks, make one small qualifying action - a deposit, a swap, a borrow or a vote - so the wallet reads as a user, not a snapshot.`,
-      cost: money(gas * weeks), time: `${10 * weeks} minutes over the hold`, cost_usd: round2(gas * weeks), minutes: 10 * weeks,
+      text: `Weekly for ${weeks} weeks: one small qualifying action (a deposit, a swap, a borrow or a vote), so the wallet reads as a user, not a snapshot.`,
+      cost: money(gas * weeks), time: `${10 * weeks} min over the hold`, cost_usd: round2(gas * weeks), minutes: 10 * weeks,
     },
     {
-      text: `Review on ${reviewDate}: if TVL has fallen under ${money(stopTvl)} (70% of the snapshot's ${money(p.tvl_usd)}), if withdrawals pause, or if a token is announced, unwind instead of adding.`,
+      text: `Review on ${reviewDate}: unwind instead of adding if TVL falls under ${money(stopTvl)} (70% of the snapshot's ${money(p.tvl_usd)}), if withdrawals pause, or if a token is announced.`,
       cost: 'nothing', time: '10 minutes', cost_usd: 0, minutes: 10,
     },
     {
-      text: `If a token launches, claim only from the link ${p.name}'s own page publishes, then revoke the approvals you no longer need.`,
+      text: `If a token launches, claim only via the link on ${p.name}'s own page, then revoke unneeded approvals.`,
       cost: money(gas), time: '10 minutes', cost_usd: round2(gas), minutes: 10,
     },
     {
-      text: `After ${hold} days or at the claim, unwind the position and send the funds back to the exchange.`,
+      text: `After ${hold} days, or at the claim, unwind and send the funds back to the exchange.`,
       cost: money(gas * 2 + 1.5), time: '15 minutes', cost_usd: round2(gas * 2 + 1.5), minutes: 15,
     },
   ];
@@ -757,6 +976,8 @@ export interface RadarRow extends FactorBreakdown {
   tvl_usd: number;
   change_7d: number | null;
   listed_at: string | null;
+  gecko_id: string | null;
+  symbol: string | null;
   age_days: number | null;
   implied_value_usd: number;
   watchlist: boolean;
@@ -799,6 +1020,8 @@ export interface RadarData {
   families: FamilyPremium[];
   backtest: Backtest;
   odds: { ever_global: number; buckets: { lo: number; hi: number; n: number; rate: number }[] };
+  odds_check: OddsCheck;
+  stability: Stability;
   totals: {
     implied_total: number;
     farm: number;
@@ -816,9 +1039,9 @@ export interface RadarData {
 }
 
 /** Score every ranked protocol, order the board, and attach bands, rank ranges and farm plans. */
-export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; universe: Universe; fit: FittedModel; backtest: Backtest; oddsModel: OddsModel } {
+export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; universe: Universe; fit: FittedModel; backtest: Backtest; oddsModel: OddsModel; stability: Stability } {
   const universe = selectUniverse(snapshot);
-  const fit = fitModel(universe.comps, model);
+  const fit = fitModel(universe.comps, model, true);
   const backtest = backtestModel(universe.comps, snapshot.as_of, model);
   const oddsModel = buildOddsModel(snapshot);
   const watchlist = new Set(snapshot.watchlist);
@@ -882,7 +1105,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
     };
   });
   void watchlist;
-  return { board, universe, fit, backtest, oddsModel };
+  const stability = refitStability(universe.comps, universe.ranked, board.slice(0, 20).map((r) => r.slug), snapshot.as_of, model);
+  return { board, universe, fit, backtest, oddsModel, stability };
 }
 
 /** The three traded comparables nearest a protocol by TVL inside its own family. */
@@ -898,7 +1122,7 @@ function nearestComps(p: SnapshotProtocol, comps: SnapshotProtocol[]): { name: s
 
 /** Everything the dashboard renders, from the snapshot. */
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
-  const { board, universe, fit, backtest, oddsModel } = buildBoard(snapshot, model);
+  const { board, universe, fit, backtest, oddsModel, stability } = buildBoard(snapshot, model);
   const watchlist = new Set(snapshot.watchlist);
   const bySlug = new Map(snapshot.protocols.map((p) => [p.slug, p]));
   const rows: RadarRow[] = board.map((row) => {
@@ -914,6 +1138,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
       tvl_usd: row.tvl_usd,
       change_7d: row.change_7d,
       listed_at: row.listed_at,
+      gecko_id: row.gecko_id,
+      symbol: row.symbol,
       age_days: row.age_days,
       implied_value_usd: row.implied_value_usd,
       watchlist: watchlist.has(row.slug),
@@ -940,6 +1166,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     families: [...fit.premiums.values()].sort((a, b) => b.peers - a.peers).map((f) => ({ family: f.family, peers: f.peers, raw: round4(f.raw), adj: round4(f.adj) })),
     backtest,
     odds: { ever_global: oddsModel.ever_global, buckets: oddsModel.buckets },
+    odds_check: oddsCheck(snapshot),
+    stability,
     totals: {
       implied_total: board.reduce((s, r) => s + r.implied_value_usd, 0),
       farm: board.filter((r) => r.model.verdict === 'FARM').length,

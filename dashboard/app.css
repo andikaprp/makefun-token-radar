@@ -1,4 +1,4 @@
-/* Token Launch Radar - fitted-comps-1. One dark scope theme: near-black green canvas,
+/* Token Launch Radar - fitted-comps-2. One dark scope theme: near-black green canvas,
    one phosphor accent, amber for marginal evidence, red for skip. System fonts only. */
 :root{
   --bg:#0a0f0d; --panel:#101713; --panel2:#0d120f; --line:#223028; --line2:#2c3f34;
@@ -11,7 +11,7 @@ html,body{margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 .skip{position:absolute;left:-999px;top:0;background:var(--acc);color:#06260f;padding:6px 10px;z-index:9}
 .skip:focus{left:8px;top:8px}
-main{max-width:1460px;margin:0 auto;padding:14px 18px 40px}
+main{max-width:1460px;margin:0 auto;padding:10px 18px 40px}
 a{color:var(--acc)}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
@@ -27,21 +27,21 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .views button.on{background:var(--acc);border-color:var(--acc);color:#06260f;font-weight:600}
 
 /* headline + KPI strip */
-.head h1{font-size:25px;line-height:1.2;margin:16px 0 4px;font-weight:700}
+.head h1{font-size:23px;line-height:1.2;margin:10px 0 3px;font-weight:700}
 .head h1 b{color:var(--acc);font-weight:700}
-.head p{margin:0 0 14px;color:var(--dim);max-width:900px}
-.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:12px}
-.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:86px}
+.head p{margin:0 0 10px;color:var(--dim);max-width:900px}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 11px;min-height:76px}
 .kpi .k{font-size:11px;letter-spacing:.09em;color:var(--faint);text-transform:uppercase}
-.kpi .v{font-size:24px;font-weight:700;font-family:var(--mono);margin:2px 0}
+.kpi .v{font-size:22px;font-weight:700;font-family:var(--mono);margin:2px 0}
 .kpi .v.good{color:var(--acc)}
 .kpi .s{font-size:12px;color:var(--dim);line-height:1.35}
 
 /* accounting bar */
-.acct{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px}
-.acct .line{font-size:13px;margin-bottom:8px}
+.acct{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:10px}
+.acct .line{font-size:13px;margin-bottom:6px}
 .acct .line b{font-family:var(--mono)}
-.stack{display:flex;height:10px;border-radius:5px;overflow:hidden;margin-bottom:8px}
+.stack{display:flex;height:9px;border-radius:5px;overflow:hidden;margin-bottom:6px}
 .stack i{display:block;height:100%}
 .legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--dim)}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
@@ -65,9 +65,9 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 /* board table */
 table.board{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-table.board th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.board th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 table.board th.r,table.board td.r{text-align:right}
-table.board td{padding:8px 10px;border-bottom:1px solid #16211a;vertical-align:top}
+table.board td{padding:5px 10px;border-bottom:1px solid #16211a;vertical-align:top}
 table.board tbody tr{cursor:pointer}
 table.board tbody tr:hover{background:#131c16}
 .rank{font-family:var(--mono);font-weight:700;font-size:16px}
@@ -76,9 +76,9 @@ table.board tbody tr:hover{background:#131c16}
 .badge{display:inline-block;font-size:10px;letter-spacing:.05em;border:1px solid var(--acc-dim);color:var(--acc);border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:2px}
 .badge.grey{border-color:var(--line2);color:var(--dim)}
 .pos{color:var(--acc)} .neg{color:var(--red)}
-.whisk{position:relative;height:8px;background:#182219;border-radius:4px;margin:3px 0 2px;min-width:110px}
-.whisk .band{position:absolute;top:0;height:8px;background:#33523f;border-radius:4px}
-.whisk .tick{position:absolute;top:-2px;width:2px;height:12px;background:var(--acc)}
+.whisk{position:relative;height:7px;background:#182219;border-radius:4px;margin:2px 0 1px;min-width:96px}
+.whisk .band{position:absolute;top:0;height:7px;background:#33523f;border-radius:4px}
+.whisk .tick{position:absolute;top:-2px;width:2px;height:11px;background:var(--acc)}
 .oddsbar{display:inline-block;width:44px;height:6px;background:#182219;border-radius:3px;vertical-align:middle;margin-left:6px}
 .oddsbar i{display:block;height:6px;background:var(--gold);border-radius:3px}
 .chip{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;border-radius:4px;padding:1px 6px}
@@ -89,55 +89,71 @@ table.board tbody tr:hover{background:#131c16}
 .net.FARM{color:var(--acc)} .net.MARGINAL{color:var(--amber)} .net.SKIP{color:var(--red)}
 
 /* rail panels */
-.rail .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.rail .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 13px;margin-bottom:10px}
 .panel h3{margin:0 0 4px;font-size:14px}
 .panel h3 .fn{color:var(--gold);font-family:var(--mono);font-size:12px;font-weight:400}
-.panel p{margin:6px 0;color:var(--dim);font-size:12.5px;line-height:1.5}
+.panel p{margin:5px 0;color:var(--dim);font-size:12.5px;line-height:1.45}
 .panel p b{color:var(--text)}
-table.mini{width:100%;border-collapse:collapse;font-size:12.5px;margin:8px 0}
-table.mini th{color:var(--faint);font-weight:400;text-align:right;padding:3px 4px;white-space:nowrap}
+table.mini{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0}
+table.mini th{color:var(--faint);font-weight:400;text-align:right;padding:2px 4px;white-space:nowrap}
 table.mini th:first-child{text-align:left}
-table.mini td{padding:3px 4px;text-align:right;font-family:var(--mono);border-top:1px solid #16211a;white-space:nowrap}
+table.mini td{padding:2px 4px;text-align:right;font-family:var(--mono);border-top:1px solid #16211a;white-space:nowrap}
 table.mini td:first-child{text-align:left;font-family:inherit}
 table.mini tr.kept td{color:var(--acc)}
 table.mini tr.cut td{color:var(--faint)}
-ol.how{margin:6px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.55}
+ol.how{margin:6px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.5}
 ol.how b{color:var(--text)}
 
 /* detail */
-.back{color:var(--dim);font-size:13px;margin:10px 0}
-.dhead{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:12px}
+.back{color:var(--dim);font-size:13px;margin:6px 0}
+.dhead{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px}
 .dhead h2{margin:2px 0 4px;font-size:24px}
 .dhead .big{font-size:34px;font-weight:700;font-family:var(--mono);color:var(--acc)}
-.dgrid{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:14px;margin-top:14px;align-items:start}
+.dgrid{display:grid;grid-template-columns:minmax(0,1fr) 460px;gap:14px;margin-top:10px;align-items:start}
 @media (max-width:1080px){.dgrid{grid-template-columns:1fr}}
 table.build{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-table.build td,table.build th{padding:8px 12px;border-bottom:1px solid #16211a;text-align:left;vertical-align:top}
+table.build td,table.build th{padding:7px 12px;border-bottom:1px solid #16211a;text-align:left;vertical-align:top}
 table.build th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
 table.build td.v{text-align:right;font-family:var(--mono);font-weight:700;white-space:nowrap}
 table.build td .sub{max-width:430px}
 table.build tr.total td{background:#131c16;font-size:15px}
-.farmbox{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
-.farmbox .netline{font-size:14px;margin:6px 0 10px}
-.farmgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:10px 0}
-.farmgrid .cell{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:7px 8px}
+.farmbox{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.farmbox .netline{font-size:14px;margin:6px 0 8px}
+.farmgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:8px 0}
+.farmgrid .cell{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 7px}
 .farmgrid .cell .k{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
-.farmgrid .cell .v{font-family:var(--mono);font-weight:700;font-size:15px}
-ol.steps{margin:10px 0;padding-left:20px}
-ol.steps li{margin-bottom:9px;line-height:1.45}
-ol.steps .ct{color:var(--faint);font-size:12.5px;font-family:var(--mono)}
-.sens{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.sens .cell{border:1px solid var(--line2);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--dim)}
-.sens .cell b{font-family:var(--mono)}
+.farmgrid .cell .v{font-family:var(--mono);font-weight:700;font-size:14px}
+table.steps{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px;line-height:1.35;table-layout:fixed}
+table.steps th{color:var(--faint);font-weight:400;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:3px 6px;border-bottom:1px solid var(--line)}
+table.steps th:nth-child(1){width:20px}
+table.steps th:nth-child(3){width:54px;text-align:right}
+table.steps th:nth-child(4){width:96px;text-align:right}
+table.steps td{padding:2px 6px;border-bottom:1px solid #16211a;vertical-align:top}
+table.steps td.n{font-family:var(--mono);color:var(--faint)}
+table.steps td.ct{font-family:var(--mono);color:var(--dim);text-align:right}
+table.steps tr.tot td{background:#131c16;font-weight:600;border-bottom:0}
+table.matrix{width:100%;border-collapse:collapse;margin:8px 0 10px;font-size:12.5px}
+table.matrix th{color:var(--faint);font-weight:400;text-align:right;padding:3px 6px;white-space:nowrap}
+table.matrix th:first-child{text-align:left}
+table.matrix td{padding:4px 6px;text-align:right;font-family:var(--mono);border-top:1px solid #16211a;white-space:normal}
+table.matrix td .sub{font-family:inherit}
+table.matrix td.FARM{color:var(--acc)}
+table.matrix td.MARGINAL{color:var(--amber)}
+table.matrix td.SKIP{color:var(--red)}
+table.matrix td.own{background:#131c16;font-weight:700}
 
 /* method */
 .mgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px;align-items:start}
+.mgrid table.mini td,.mgrid table.mini th{padding-top:1px;padding-bottom:1px}
+.mgrid .panel p{margin:4px 0}
+.acctgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.acctgrid p{margin:3px 0}
 @media (max-width:1080px){.mgrid{grid-template-columns:1fr}}
-.note{border:1px solid var(--gold);border-radius:8px;padding:12px 14px;background:#141309}
+.note{border:1px solid var(--gold);border-radius:8px;padding:10px 13px;background:#141309}
 .note h3{color:var(--gold)}
-.note ol{margin:6px 0 0;padding-left:18px;color:var(--dim);font-size:13px;line-height:1.6}
+.note ol{margin:6px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.5}
 .note ol b{color:var(--text)}
 .note .fn{color:var(--gold);font-family:var(--mono);font-size:12px}
 svg text{fill:var(--faint);font-size:10px;font-family:var(--mono)}
 svg .axis{stroke:var(--line2)}
-.foot{color:var(--faint);font-size:12px;margin-top:22px;border-top:1px solid var(--line);padding-top:10px}
+.foot{color:var(--faint);font-size:12px;margin-top:16px;border-top:1px solid var(--line);padding-top:10px}
