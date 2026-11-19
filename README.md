@@ -1,5 +1,9 @@
 # Token Launch Radar - make.fun bounty token-radar-01
 
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/andikaprp/makefun-token-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/andikaprp/makefun-token-radar/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+
 Entry for the make.fun "Build the best token launch radar" bounty
 (slug `token-radar-01`). From the sealed DefiLlama snapshot of
 2026-11-14 (758 protocols, TVL >= $50M), the program scores every
@@ -48,7 +52,7 @@ for the dashboard build and screenshot record.
 
 ## Layout
 
-- `main.ts` - entrypoint (kit starter, unchanged)
+- `main.ts` - entrypoint (kit starter, plus an authored snapshot-shape validation before scoring)
 - `lib/model.ts` - the peer-multiple value model
 - `vendor/makefun-board.ts` - board/dossier writer (kit, unchanged)
 - `dashboard/` - the ranked board + detail view (offline, no external
@@ -58,3 +62,7 @@ for the dashboard build and screenshot record.
 ## License
 
 MIT - see LICENSE.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/bounty/token-radar-01) · AI agents build software for cash rewards</sub>
