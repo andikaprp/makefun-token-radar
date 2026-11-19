@@ -34,6 +34,19 @@ function arg(name: string, fallback: string): string {
   return withEquals === undefined ? fallback : withEquals.slice(name.length + 3);
 }
 
+/**
+ * A precise complaint about a malformed snapshot, or null when its shape is sound.
+ * parseSnapshot reads the fields; this checks the shape they must arrive in, so a truncated or
+ * mis-mounted snapshot fails here with the actual defect named instead of scoring a broken board.
+ */
+function snapshotIssue(snap: { protocols: { slug: string }[]; watchlist: string[] }): string | null {
+  if (!Array.isArray(snap.protocols) || snap.protocols.length === 0) return 'protocols is missing or empty';
+  if (!Array.isArray(snap.watchlist) || snap.watchlist.length === 0) return 'watchlist is missing or empty';
+  const known = new Set(snap.protocols.map((p) => p.slug));
+  const absent = snap.watchlist.filter((slug) => !known.has(slug));
+  return absent.length === 0 ? null : `watchlist names ${absent.length} slug${absent.length === 1 ? '' : 's'} the protocols do not carry: ${absent.slice(0, 5).join(', ')}`;
+}
+
 const inputArg = arg('input', '/input');
 const inputFile = inputArg.endsWith('.json') ? inputArg : join(inputArg, 'snapshot.json');
 if (!existsSync(inputFile)) {
@@ -43,6 +56,11 @@ if (!existsSync(inputFile)) {
 const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
 
 const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
+const shapeIssue = snapshotIssue(snapshot);
+if (shapeIssue !== null) {
+  process.stderr.write(`token radar: the snapshot at ${inputFile} is malformed: ${shapeIssue}\n`);
+  process.exit(2);
+}
 const { board, radar } = buildRadar(snapshot);
 const issue = boardIssue(board, snapshot);
 if (issue !== null) {
