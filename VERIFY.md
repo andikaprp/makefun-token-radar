@@ -1,5 +1,10 @@
 # Verification - peer-multiple-1 against the REAL sealed snapshot
 
+> Superseded: this records the v1 model's verification. The current
+> model is fitted-comps-1 - see MODEL.md; its blind tests ship in the
+> dossier itself (data.js `backtest`) and are re-derived in the
+> browser by the dashboard's checkBoard().
+
 Run: 2026-11-19, Muse subagent (verification lane). Nothing submitted; no
 account or repo created; the kit's `cli/makefun.mjs` was not run.
 Code verified: `lane-build/main.ts` + `lib/model.ts` (peer-multiple-1),

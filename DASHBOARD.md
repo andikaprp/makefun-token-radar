@@ -1,5 +1,9 @@
 # Dashboard - token-radar-01 (dashboard lane)
 
+> Superseded: this records the v1/v2 dashboard. The current dashboard
+> (board + detail + traded + Method views over the fitted-comps-1
+> data) is described in MODEL.md and the workspace's V3.md.
+
 Status: custom dashboard built, screenshots taken from the real rendered
 page, full entry re-run and verified locally. Nothing submitted; no
 account or repo created; Claude Code CLI not used. This lane closes the

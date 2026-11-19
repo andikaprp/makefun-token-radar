@@ -1,96 +1,110 @@
-# Value model - peer-multiple-2
+# Value model - fitted-comps-1
 
 Status: this is the model the entry now runs (`lib/model.ts`,
-`MODEL_VERSION = 'peer-multiple-2'`). It replaces peer-multiple-1, which
-was diagnosed and retired in the v2 improvement lane (full record in the
-workspace's V2.md). Everything below is verified on the REAL sealed
-snapshot (758 protocols, 40 watchlist, `as_of` 2026-11-14).
+`MODEL_VERSION = 'fitted-comps-1'`). It replaces peer-multiple-2 (and
+peer-multiple-1 before it). The diagnosis that retired the multiple
+family is in the workspace's V3-RESEARCH.md: the dossiers at the top
+of this competition do not price with category medians at all - they
+fit a curve to the traded tokens and prove it on held-out data, on
+the page. Everything below is verified on the REAL sealed snapshot
+(758 protocols, 40 watchlist, `as_of` 2026-11-14).
 
-## Why model 1 was retired
+## Universe (selectUniverse)
 
-Model 1 priced Risk Curators off a single tokenised peer: Api3, an
-oracle token with a $35.0M market cap on $11.8M of TVL - a 2.9747x
-mcap/TVL ratio. Shrinkage with k=4 blended that one print to 0.7917x,
-still 3.2x the snapshot-wide median (0.2460x), and because Risk
-Curators protocols hold genuinely large TVL, that one number priced 7
-of the board's top 10 and 10 of the top 20 (Steakhouse Financial at a
-$1.894B implied value, backed by a $35M peer). The dashboard badged
-those rows "thin peer set - 1 peer", but the price itself carried no
-discount. Model 1 also paid its maximum growth bonus (x1.60) to any
-7-day TVL print above +120% - the snapshot contains a +4,448% print,
-so three board rows sat at the cap on the noisiest figure available.
+Every protocol is counted once, in cascade order: a live market cap
+puts it in the traded set (128); a token on record without a live cap
+(288, including 16 with a recorded cap of zero or less, which no log
+fit may touch); then, of the rest, bridges (43), liquid staking and
+restaking (43), exchange custody (42), versioned releases (12) and
+wrapped-by-name (5) are set aside as other products wearing a
+parent's token or a wrapper's. What remains - stand-alone, no token
+on record - is ranked: 197 rows, all 40 watchlist slugs among them.
+The ranked set runs to the snapshot's own $5M protocol floor; the
+watchlist is the floor of the work, never its ceiling.
 
-## Formula (model 2)
+Comparables ("comps") are the stand-alone traded tokens: the traded
+set less bridges, staking forms, custody, versioned and wrapped -
+92 protocols, 70 of them dated. Comps are grouped into seven
+families (Lending & credit 20, Trading venues 22, Vaults & yield 20,
+RWA & stables 12, Chains & infra 10, Staking & restaking 4,
+AI/NFTs & other 4).
 
-For every pre-token protocol (no mcap, no gecko_id, no symbol):
+## Value (fitCurve, familyPremium, launchValue)
 
 ```
-peer ratio    = mcap_usd / tvl_usd of each tokenised protocol, clamped to [0.02, 10]
-category mult = median peer ratio in the protocol's category, shrunk toward
-                the global median:  mult = w*catMedian + (1-w)*globalMedian,
-                w = peers / (peers + 10)          (model 1: peers + 4)
-evidence      = while a category has fewer than min_peers (4) peers, the
-                shrunk multiple is multiplied by
-                1 - 0.4 * (1 - peers/4):  x0.70 for 1 peer, x0.80 for 2,
-                x0.90 for 3, x1.00 from 4 up. A category with no peers
-                uses the global median outright (no category claim, no
-                discount). New in model 2.
-base          = tvl_usd * category mult * evidence
-growthMult    = 1 + (clamp(change_7d, -50, +80) / 100) * 0.35
-                (model 1: clamp [-60, +120] * 0.5, bonus up to x1.60;
-                model 2 pays the noisy week less: at most x1.28)
-ageMult       = 0.6 + min(age_days, 1095)/1095 * 0.4   (unknown age = 365)
-chainMult     = 1 + 0.02 * min(chains - 1, 5)          (max 1.10)
-cap           = 2 * largest tokenised peer mcap in the category, but only
-                when that category has >= 4 peers; otherwise 2 * largest
-                peer mcap in the whole snapshot (unchanged from model 1;
-                it binds on 0 rows - a guard, not a ranking tool)
-implied       = max(1, min(cap, round(base * growthMult * ageMult * chainMult)))
+forward TVL  = TVL x (1 + clamp(change_7d - median comp change, -60, +60) / 100) ^ 0.42
+curve value  = 10 ^ (a + b x log10(forward TVL))        a = 3.9848, b = 0.3905 on this snapshot
+launch value = curve value x family premium
+family premium = 1 + (median residual ratio of the family's comps - 1) x n / (n + 8)
 ```
 
-Constants live in `MODEL` in `lib/model.ts` (`shrink_k 10`,
-`thin_discount_max 0.4`, `growth_weight 0.35`, `growth_floor/cap
--50/+80`; the rest unchanged). Peer set excludes CEX-category
-protocols. No protocol name is special-cased anywhere; the watchlist
-is read from the snapshot, and the board is watchlist + top-160
-rankable pre-token protocols below the floor by TVL, sorted by implied
-value, ties by slug.
+The curve is an ordinary least-squares fit of log10(market cap) on
+log10(forward TVL) over the 92 comps. A Huber-robust refit was
+tested and rejected (left-out miss x3.43 against x3.27). The
+snapshot's median comp change is -9.11%, so a protocol standing
+still gains forward TVL; the carry is bounded at +/-60 points of
+excess and the exponent 0.42 is the value the blind test chose from
+the grid 0.30 / 0.42 / 0.55.
 
-## What changed on the sealed snapshot (model 1 -> model 2)
+## Blind tests (backtestModel, printed in the dossier)
 
-- Risk Curators multiple 0.7917 -> **0.3458** (shrunk 0.4941, then
-  x0.70 evidence). Steakhouse $1.894B -> **$830M**, Gauntlet $1.128B ->
-  $489M. Both stay #1/#2 - they are the two largest pre-token protocols
-  in the snapshot - but at a multiple 56% lower.
-- Top 10: Risk Curators **7 -> 5**; the top-3 sweep is broken (Veda #3,
-  USDD #4, both nearly unchanged in value - the fix deflates the
-  artefact, it does not promote favourites).
-- Top 20: Risk Curators **10 -> 8**, across 9 categories (was 7);
-  RWA grows 3 -> 4. Exits: Armitage (#16 -> #22), Noble (#19 -> #26),
-  Keyrock (#20 -> #30). Entries: R25, Lightning Network, Saturn - all
-  rows with full peer sets or the global median.
-- The other one-peer high-median categories deflate the same way:
-  Chain 0.8021 -> 0.3491 (Hive Protocol $142M -> $63M), Prediction
-  Market and Collateral Management (medians pinned at the 10x clamp)
-  2.1968 -> 0.7929.
-- Board total implied value $6.32B -> $3.67B. Every thin row's fall is
-  the same mechanism; the biggest movers are all Risk Curators / Chain
-  rows dropping 45-58 places from the early-radar tail.
-- Invariants hold: 200 rows, ranks 1..N, values non-increasing and
-  **all 200 distinct**, watchlist 40/40, farm steps 6/row at 124-175
-  chars, 0 capped rows, two runs byte-identical.
+Leave-one-out over the 92 comps, and a time split (fit on the older
+half of the 70 dated comps, price the 35 newer):
 
-## Per-row factor breakdown
+| model | left out | within 3x | older->newer | within 3x |
+|---|---|---|---|---|
+| one flat multiple of TVL | x4.65 | 38% | x4.52 | 37% |
+| + size curve | x3.27 | 46% | x2.11 | 57% |
+| + growth carry | x3.23 | 46% | x2.10 | 57% |
+| + family premium (the model) | x3.29 | 47% | x2.27 | 57% |
+| + age inside the price (tested, not kept) | x3.39 | 47% | x3.10 | 43% |
 
-Every `board.json` row carries `model: FactorBreakdown`, now including
-`shrunk_multiple` and `evidence_factor` alongside `peer_multiple` (the
-applied, post-discount figure), `peer_source`, `peer_count`, both
-medians, `base_value_usd`, the growth/age/chain multipliers, `cap_usd`
-and `capped`. `data.js` rows carry the same fields, so the dashboard's
-detail view shows the whole chain - category median 2.9747x -> shrunk
-0.4941x -> evidence x0.7000 -> applied 0.3458x for Steakhouse - and its
-recompute check still lands within rounding of the board's number.
-Thin badges now carry the price of the thinness ("thin peer set - 1
-peer, priced x0.70"). Live-token protocols stay out of the board
-entirely: they are the peer set, and the dashboard's live view (24 by
-mcap) shows their real market caps.
+The flat row fits the median multiple per fold, so it is the honest
+form of the retired model class. The curve earns its place; growth
+and the premium are inside the noise of 92 tokens and are kept
+bounded for that reason; age in the price is the one clear negative
+and is cut. The printed value band is the model's own left-out
+residual band: P25-P75 x0.30 to x3.19, P10-P90 x0.09 to x10.88.
+Fitted on the oldest half, the P25-P75 band caught 20 of 35 newer
+caps (57% against the 50% it states) and P10-P90 caught 27 (77%
+against 80%): a little narrow, stated as such on the page. Rank
+ranges come from the same band: how many board values clear a row's
+band edges.
+
+## Launch odds (launchOdds)
+
+The share of protocols recording a token rises with tracked age
+toward an ever-rate read off the oldest cohort (79.7%). A category's
+own ever-rate is corrected for its age mix (its members' expected
+completion under the snapshot-wide curve), shrunk toward the global
+rate by n/(n+10), and floored at 8 members. The odds a launch is
+still to come are the survival form E(1-F)/(1-EF), F the share of
+its launches this age has already used, clamped to [0.10, 0.95].
+Undated protocols are read at 365 days. The odds never multiply the
+headline value; they price the expected drop in the farm maths.
+
+## Farm plans (farmPlan)
+
+A stated 8% of a launch's value is the farmers' drop, shared
+pro-rata to TVL. Each plan: a fresh wallet on the protocol's first
+listed chain, the contract and token check on the protocol's own
+page, a deposit sized to the protocol (TVL x 1e-5, $250 to $25,000,
+two significant figures), weekly qualifying actions across a hold of
+30 / 45 / 60 days by tracked age, a dated review with a stop at 70%
+of snapshot TVL, and an exit step. Fees are totalled from the
+chain's gas tier ($0.05-$7.50 per transaction by chain class, $0.50
+default). The net is the expected slice at the launch odds, less
+fees, less a 4% T-bill charge on the deposit for the hold. Verdicts:
+FARM at net >= $5, MARGINAL within $5, else SKIP - 24 / 79 / 94 on
+this snapshot. Break-even odds (the launch chance at which costs are
+exactly covered) are printed per row, and the dashboard re-prices
+every plan at $1,000 and $10,000 deposits on request.
+
+## Board on this snapshot
+
+197 rows, all implied values distinct, total $1,933,240,225. Top:
+Bittensor dTAO $38.7M (odds 92%), Polymarket International $36.6M
+(odds 10%), BitFi Basis $30.9M. The large Risk Curators vaults price
+in the $20-30M range off the curve and mostly SKIP: at the $25,000
+deposit cap the T-bill charge on a huge-TVL slice outweighs the
+expected drop, which is the model's honest arithmetic, not a badge.
