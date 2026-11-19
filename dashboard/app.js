@@ -42,10 +42,12 @@
   }
 
   // Confidence: a multiple is only as strong as the peer set behind it. Fewer than the model's
-  // min_peers tokenised peers (or none, the global fallback) is badged wherever the number shows.
+  // min_peers tokenised peers (or none, the global fallback) is badged wherever the number shows,
+  // and since peer-multiple-2 the badge also carries the price of that thinness: the evidence
+  // factor the model multiplied the shrunk multiple by before ranking the row.
   function peerBadge(r) {
     if (r.peer_source === 'global') return { cls: 'badge thin', text: 'global median - no category peers' };
-    if (r.peer_count < M.min_peers) return { cls: 'badge thin', text: 'thin peer set - ' + r.peer_count + (r.peer_count === 1 ? ' peer' : ' peers') };
+    if (r.peer_count < M.min_peers) return { cls: 'badge thin', text: 'thin peer set - ' + r.peer_count + (r.peer_count === 1 ? ' peer' : ' peers') + ', priced x' + r.evidence_factor.toFixed(2) };
     return { cls: 'badge ok', text: r.peer_count + ' peers' };
   }
   function sourceLabel(r) {
@@ -291,7 +293,7 @@
       tbody.appendChild(tr);
     });
     return el('div', null,
-      el('p', { class: 'legend', text: 'Peer evidence: a multiple badged "thin peer set" rests on fewer than ' + M.min_peers + ' tokenised peers in its category and is shrunk toward the snapshot-wide median; "global median" means the category has no tokenised peer at all. ' + thinCount() + ' of ' + DATA.rows.length + ' rows carry a thin badge. Select any row for its full factor breakdown and farm plan.' }),
+      el('p', { class: 'legend', text: 'Peer evidence: a multiple badged "thin peer set" rests on fewer than ' + M.min_peers + ' tokenised peers in its category. It is shrunk toward the snapshot-wide median and then discounted - priced at x0.70 of the shrunk multiple for one peer, x0.80 for two, x0.90 for three - because a category priced off one launch is a claim, not a market price. "Global median" means the category has no tokenised peer at all. ' + thinCount() + ' of ' + DATA.rows.length + ' rows carry a thin badge. Select any row for its full factor breakdown and farm plan.' }),
       el('div', { class: 'panel' },
         el('div', { class: 'table-wrap' },
           el('table', null,
@@ -346,6 +348,7 @@
       el('div', { class: 'formula' },
         'implied = min(cap, round( TVL x peer_multiple x growth x age x chains ))',
         el('br'), el('span', { class: 'dim', text: 'peer_multiple = median mcap/TVL of the category\'s tokenised protocols, each ratio clamped to [' + M.ratio_floor + ', ' + M.ratio_cap + '], shrunk toward the snapshot-wide median with weight peers/(peers + ' + M.shrink_k + '); a category with no peers uses the global median outright' }),
+        el('br'), el('span', { class: 'dim', text: 'evidence = while a category has fewer than ' + M.min_peers + ' peers, its shrunk multiple is multiplied by 1 - ' + M.thin_discount_max + ' x (1 - peers/' + M.min_peers + '): x0.70 for one peer, x0.80 for two, x0.90 for three. One launch is not a market price, so thin evidence is priced at a discount, not just badged' }),
         el('br'), el('span', { class: 'dim', text: 'growth = 1 + clamp(change_7d, ' + M.growth_floor + '%, +' + M.growth_cap + '%)/100 x ' + M.growth_weight + '  ·  age = ' + M.age_floor + ' + min(age_days, ' + M.age_days_cap + ')/' + M.age_days_cap + ' x ' + M.age_range + ' (unknown age counts as ' + M.unknown_age_days + ' days)  ·  chains = 1 + ' + M.chain_step + ' x min(extra chains, ' + M.chain_max_extra + ')' }),
         el('br'), el('span', { class: 'dim', text: 'cap = ' + M.cap_factor + ' x the largest tokenised peer market cap in the category (the snapshot-wide largest when the category has fewer than ' + M.min_peers + ' peers) - a sanity guard, not a ranking tool' })
       ),
@@ -390,6 +393,8 @@
         eqRow('Peer multiple - ' + sourceLabel(row), fmtMult(row.peer_multiple)),
         eqRow('Category median multiple', row.category_median_multiple === null ? 'no tokenised peers' : fmtMult(row.category_median_multiple)),
         eqRow('Global median multiple', fmtMult(row.global_median_multiple)),
+        eqRow('Multiple after shrinkage', fmtMult(row.shrunk_multiple)),
+        eqRow('Evidence factor - ' + (row.peer_count >= M.min_peers ? 'peer set at the ' + M.min_peers + '-peer minimum or better' : 'thin peer set, ' + row.peer_count + (row.peer_count === 1 ? ' peer' : ' peers')), fmtX(row.evidence_factor)),
         eqRow('Base value (TVL x peer multiple)', fmtUsd(row.base_value_usd)),
         eqRow('7d growth ' + fmtPct(row.change_7d) + ', clamped to ' + fmtPct(row.growth_pct), fmtX(row.growth_multiplier)),
         eqRow('Age with no token ' + fmtAge(row.age_days), fmtX(row.age_multiplier)),

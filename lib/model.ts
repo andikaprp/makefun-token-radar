@@ -6,15 +6,23 @@
 // snapshot's live-token protocols are kept apart and shown as the market's own values, never mixed into
 // the ranked board. Those live-token protocols are also the model's teachers: they are the peer set.
 //
-// Implied value follows only from the snapshot's own figures (model "peer-multiple-1"):
+// Implied value follows only from the snapshot's own figures (model "peer-multiple-2"):
 //
 //   peer ratio   = mcap_usd / tvl_usd for every tokenised protocol, clamped to [0.02, 10]
 //   catMultiple  = median peer ratio of the protocol's own category, shrunk toward the global
-//                  median with weight peers / (peers + 4); a category with no peers uses the
+//                  median with weight peers / (peers + 10); a category with no peers uses the
 //                  global median outright. No protocol name is ever special-cased.
-//   base         = tvl_usd x catMultiple
-//   growth       = clamp(change_7d, -60, 120) per cent
-//   growthMult   = 1 + (growth / 100) x 0.5
+//   evidence     = a category priced off fewer than min_peers launches is a claim, not a market
+//                  price, so its shrunk multiple is discounted: x (1 - 0.4 x (1 - peers/4)) -
+//                  x0.70 for one peer, x0.80 for two, x0.90 for three, x1.00 from four up.
+//                  Model 1 shrunk a one-peer median of 2.97x (a single $35M oracle token) only
+//                  to 0.79x and let it price seven of the board's top ten; the discount is the
+//                  price of thin evidence, applied to the number itself, not just a badge.
+//   base         = tvl_usd x catMultiple x evidence
+//   growth       = clamp(change_7d, -50, 80) per cent - one week of TVL flow is the noisiest
+//                  figure in the snapshot (it contains a +4,448% print), so model 2 pays it
+//                  less: growthMult = 1 + (growth / 100) x 0.35, a bonus of at most x1.28
+//   growthMult   = 1 + (growth / 100) x 0.35
 //   ageMult      = 0.6 + min(age_days, 1095) / 1095 x 0.4   (age_days unknown: 365) - saturating:
 //                  the factor stops growing at three years, however old the protocol is.
 //   chainMult    = 1 + 0.02 x min(chains - 1, 5)            (at most 1.10, never dominant)
@@ -58,6 +66,11 @@ export interface ModelConstants {
   min_peers: number;
   /** Shrinkage weight: a category median is blended with the global median as peers/(peers+k). */
   shrink_k: number;
+  /**
+   * Thin-evidence discount: below min_peers, the shrunk multiple is multiplied by
+   * 1 - thin_discount_max x (1 - peers/min_peers), so the thinnest category pays the most.
+   */
+  thin_discount_max: number;
   /** Peer multiple used only if the snapshot held no tokenised protocol at all. */
   fallback_multiple: number;
   growth_weight: number;
@@ -79,11 +92,12 @@ export const MODEL: ModelConstants = {
   ratio_floor: 0.02,
   ratio_cap: 10,
   min_peers: 4,
-  shrink_k: 4,
+  shrink_k: 10,
+  thin_discount_max: 0.4,
   fallback_multiple: 0.25,
-  growth_weight: 0.5,
-  growth_floor: -60,
-  growth_cap: 120,
+  growth_weight: 0.35,
+  growth_floor: -50,
+  growth_cap: 80,
   age_floor: 0.6,
   age_range: 0.4,
   age_days_cap: 1095,
@@ -94,7 +108,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'peer-multiple-1';
+export const MODEL_VERSION = 'peer-multiple-2';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 160;
@@ -117,6 +131,10 @@ export interface FactorBreakdown {
   /** The peer multiple actually applied (kept under the starter's name too, for older readers). */
   base_multiple: number;
   peer_multiple: number;
+  /** The category multiple after shrinkage but before the thin-evidence discount. */
+  shrunk_multiple: number;
+  /** The thin-evidence discount applied to the shrunk multiple (1 when the category has min_peers or more, or no peers at all). */
+  evidence_factor: number;
   peer_source: PeerSource;
   /** Tokenised peers in the row's category (0 when the global median was used outright). */
   peer_count: number;
@@ -175,6 +193,9 @@ export interface RadarRow {
   /** True when the snapshot's watchlist carries this slug; false for an early-radar row. */
   watchlist: boolean;
   peer_multiple: number;
+  /** The multiple after shrinkage, and the thin-evidence discount that produced the applied one. */
+  shrunk_multiple: number;
+  evidence_factor: number;
   peer_source: PeerSource;
   /** Tokenised peers behind the multiple, and the medians it was blended from (detail view). */
   peer_count: number;
@@ -311,16 +332,25 @@ export function peerStats(snapshot: Snapshot, model: ModelConstants = MODEL): Pe
   };
 }
 
-/** The peer multiple one category gets: its median, shrunk toward the global median by peer count. */
-export function multipleFor(stats: PeerStats, category: string | null, model: ModelConstants = MODEL): { multiple: number; source: PeerSource; peers: number; categoryMedian: number | null; capBase: number } {
+/**
+ * The peer multiple one category gets: its median, shrunk toward the global median by peer count,
+ * then - while the category still has fewer than min_peers launches behind it - discounted for
+ * thin evidence. Shrinkage alone left a one-peer category at 0.79x in model 1 (its single peer's
+ * 2.97x ratio pulled the blend far above the 0.246x market median); the discount is what makes a
+ * thin category's rows price like the unproven claims they are.
+ */
+export function multipleFor(stats: PeerStats, category: string | null, model: ModelConstants = MODEL): { multiple: number; shrunkMultiple: number; evidenceFactor: number; source: PeerSource; peers: number; categoryMedian: number | null; capBase: number } {
   const cat = stats.byCategory.get(category);
   if (cat === undefined || cat.peers === 0) {
-    return { multiple: stats.globalMedian, source: 'global', peers: 0, categoryMedian: null, capBase: stats.globalMaxMcap };
+    return { multiple: stats.globalMedian, shrunkMultiple: stats.globalMedian, evidenceFactor: 1, source: 'global', peers: 0, categoryMedian: null, capBase: stats.globalMaxMcap };
   }
   const w = cat.peers / (cat.peers + model.shrink_k);
-  const multiple = w * cat.medianMultiple + (1 - w) * stats.globalMedian;
+  const shrunk = w * cat.medianMultiple + (1 - w) * stats.globalMedian;
+  const evidenceFactor = cat.peers >= model.min_peers ? 1 : 1 - model.thin_discount_max * (1 - cat.peers / model.min_peers);
   return {
-    multiple,
+    multiple: shrunk * evidenceFactor,
+    shrunkMultiple: shrunk,
+    evidenceFactor,
     source: cat.peers >= model.min_peers ? 'category' : 'category-shrunk',
     peers: cat.peers,
     categoryMedian: cat.medianMultiple,
@@ -335,7 +365,7 @@ export function multipleFor(stats: PeerStats, category: string | null, model: Mo
 /** The full scoring of one protocol: its implied value and the breakdown that produced it. */
 export function impliedValue(protocol: SnapshotProtocol, asOf: string, stats: PeerStats, model: ModelConstants = MODEL): { implied: number; age: number | null; breakdown: FactorBreakdown } {
   const age = ageDays(asOf, protocol.listed_at);
-  const { multiple, source, peers, categoryMedian, capBase } = multipleFor(stats, protocol.category, model);
+  const { multiple, shrunkMultiple, evidenceFactor, source, peers, categoryMedian, capBase } = multipleFor(stats, protocol.category, model);
   const baseValue = protocol.tvl_usd * multiple;
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
@@ -349,6 +379,8 @@ export function impliedValue(protocol: SnapshotProtocol, asOf: string, stats: Pe
   const breakdown: FactorBreakdown = {
     base_multiple: round4(multiple),
     peer_multiple: round4(multiple),
+    shrunk_multiple: round4(shrunkMultiple),
+    evidence_factor: round4(evidenceFactor),
     peer_source: source,
     peer_count: peers,
     category_median_multiple: categoryMedian === null ? null : round4(categoryMedian),
@@ -564,6 +596,8 @@ export function radarRow(row: BoardRow, watchlist: boolean): RadarRow {
     implied_value_usd: row.implied_value_usd,
     watchlist,
     peer_multiple: row.model.peer_multiple,
+    shrunk_multiple: row.model.shrunk_multiple,
+    evidence_factor: row.model.evidence_factor,
     peer_source: row.model.peer_source,
     peer_count: row.model.peer_count,
     category_median_multiple: row.model.category_median_multiple,
