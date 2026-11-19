@@ -1,4 +1,4 @@
-/* Token Launch Radar - fitted-comps-2. One dark scope theme: near-black green canvas,
+/* Token Launch Radar - fitted-comps-3. One dark scope theme: near-black green canvas,
    one phosphor accent, amber for marginal evidence, red for skip. System fonts only. */
 :root{
   --bg:#0a0f0d; --panel:#101713; --panel2:#0d120f; --line:#223028; --line2:#2c3f34;
@@ -30,6 +30,9 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .head h1{font-size:23px;line-height:1.2;margin:10px 0 3px;font-weight:700}
 .head h1 b{color:var(--acc);font-weight:700}
 .head p{margin:0 0 10px;color:var(--dim);max-width:900px}
+.head p.formula{font-family:var(--mono);color:var(--gold);font-size:12.5px;max-width:1180px;margin-bottom:4px}
+.sheetfoot{margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--dim)}
+.sheetfoot b{color:var(--acc);font-family:var(--mono)}
 .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:10px}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 11px;min-height:76px}
 .kpi .k{font-size:11px;letter-spacing:.09em;color:var(--faint);text-transform:uppercase}
@@ -43,7 +46,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .acct .line b{font-family:var(--mono)}
 .stack{display:flex;height:9px;border-radius:5px;overflow:hidden;margin-bottom:6px}
 .stack i{display:block;height:100%}
-.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--dim)}
+.legend{display:flex;flex-wrap:wrap;gap:3px 10px;font-size:11.5px;color:var(--dim)}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
 
 /* layout: board + rail */
@@ -67,16 +70,16 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 table.board{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 table.board th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 table.board th.r,table.board td.r{text-align:right}
-table.board td{padding:5px 10px;border-bottom:1px solid #16211a;vertical-align:top}
+table.board td{padding:4px 10px;border-bottom:1px solid #16211a;vertical-align:top}
 table.board tbody tr{cursor:pointer}
 table.board tbody tr:hover{background:#131c16}
-.rank{font-family:var(--mono);font-weight:700;font-size:16px}
+.rank{font-family:var(--mono);font-weight:700;font-size:15px}
 .sub{color:var(--faint);font-size:11.5px;line-height:1.3}
 .pname{font-weight:600}
 .badge{display:inline-block;font-size:10px;letter-spacing:.05em;border:1px solid var(--acc-dim);color:var(--acc);border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:2px}
 .badge.grey{border-color:var(--line2);color:var(--dim)}
 .pos{color:var(--acc)} .neg{color:var(--red)}
-.whisk{position:relative;height:7px;background:#182219;border-radius:4px;margin:2px 0 1px;min-width:96px}
+.whisk{position:relative;display:inline-block;height:7px;background:#182219;border-radius:4px;margin:0 0 1px 8px;width:92px;vertical-align:middle}
 .whisk .band{position:absolute;top:0;height:7px;background:#33523f;border-radius:4px}
 .whisk .tick{position:absolute;top:-2px;width:2px;height:11px;background:var(--acc)}
 .oddsbar{display:inline-block;width:44px;height:6px;background:#182219;border-radius:3px;vertical-align:middle;margin-left:6px}

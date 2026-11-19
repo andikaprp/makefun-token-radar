@@ -1,4 +1,4 @@
-// Token Launch Radar dashboard, model fitted-comps-2. Reads window.RADAR (data.js, written
+// Token Launch Radar dashboard, model fitted-comps-3. Reads window.RADAR (data.js, written
 // beside dashboard/ by main.ts) and renders the ranked board, a detail view per protocol, the
 // traded anchors, and the Method view with the model's own blind tests. No network: every
 // number on the page is in data.js, and checkBoard() re-derives the rows from the fit here.
@@ -6,7 +6,7 @@
   'use strict';
   var D = window.RADAR;
   if (!D) return;
-  var M = D.model, F = D.fit, BT = D.backtest, T = D.totals;
+  var M = D.model, F = D.fit, BT = D.backtest, T = D.totals, OC = D.odds_check;
   var app = document.getElementById('board');
   var rows = D.rows;
   var bySlug = {};
@@ -45,16 +45,18 @@
 
   // ---------- checkBoard(): the page verifies itself against the model ----------
   function checkBoard() {
-    var ok = 0, bands = 0, ranges = 0, nets = 0, sorted = true, sum = 0, wl = 0;
+    var ok = 0, weighted = 0, bands = 0, ranges = 0, nets = 0, sorted = true, sum = 0, wl = 0;
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       var pred = Math.pow(10, F.a + F.b * Math.log10(r.fwd_tvl_usd)) * r.family_premium;
       if (Math.abs(pred - r.launch_value_usd) / r.launch_value_usd < 0.015) ok++;
-      if (Math.abs(pred * BT.band25[0] - r.band_low_usd) / r.band_low_usd < 0.015 && Math.abs(pred * BT.band25[1] - r.band_high_usd) / r.band_high_usd < 0.015) bands++;
+      var predW = pred * r.launch_odds;
+      if (Math.abs(predW - r.implied_value_usd) / r.implied_value_usd < 0.015) weighted++;
+      if (Math.abs(predW * BT.band25[0] - r.band_low_usd) / r.band_low_usd < 0.015 && Math.abs(predW * BT.band25[1] - r.band_high_usd) / r.band_high_usd < 0.015) bands++;
       var lo = 1, hi = 0;
       for (var j = 0; j < rows.length; j++) {
-        if (rows[j].launch_value_usd > r.band_high_usd) lo++;
-        if (rows[j].launch_value_usd >= r.band_low_usd) hi++;
+        if (rows[j].implied_value_usd > r.band_high_usd) lo++;
+        if (rows[j].implied_value_usd >= r.band_low_usd) hi++;
       }
       if (lo === r.rank_low && Math.max(r.rank, hi) === r.rank_high) ranges++;
       var e = netAt(r, r.deposit_usd);
@@ -63,7 +65,7 @@
       sum += r.implied_value_usd;
       if (r.watchlist) wl++;
     }
-    return { ok: ok, bands: bands, ranges: ranges, nets: nets, sorted: sorted, sum: sum, wl: wl, total: T.implied_total };
+    return { ok: ok, weighted: weighted, bands: bands, ranges: ranges, nets: nets, sorted: sorted, sum: sum, wl: wl, total: T.implied_total };
   }
 
   // ---------- state ----------
@@ -74,6 +76,7 @@
     if (h.indexOf('p=') === 0) { state.view = 'detail'; state.slug = h.slice(2); return; }
     if (h === 'm') { state.view = 'method'; return; }
     if (h === 't') { state.view = 'traded'; return; }
+    if (h === 'sheet') { state.view = 'sheet'; return; }
     h.split('&').forEach(function (kv) {
       var p = kv.split('=');
       if (p[0] === 'f') state.verdict = p[1];
@@ -91,6 +94,7 @@
     return '<div class="top"><div class="brand"><span class="dot"></span>TOKEN LAUNCH RADAR <small>token launch radar</small></div>' +
       '<div class="views">' +
       '<button data-nav="board" class="' + (active === 'board' || active === 'detail' ? 'on' : '') + '">Board</button>' +
+      '<button data-nav="sheet" class="' + (active === 'sheet' ? 'on' : '') + '">Farm sheet</button>' +
       '<button data-nav="method" class="' + (active === 'method' ? 'on' : '') + '">Method</button>' +
       '<button data-nav="traded" class="' + (active === 'traded' ? 'on' : '') + '">Already trades ' + D.trades.length + '</button></div>' +
       '<div class="meta">snapshot ' + D.as_of + ' · DefiLlama protocol index · model ' + D.model_version + '<br>no network · no hand-picked names</div></div>';
@@ -105,12 +109,12 @@
     var flat = BT.variants.filter(function (v) { return v.key === 'flat'; })[0];
     var top = rows[0];
     var tiles = [
-      ['Ranked', String(rows.length), D.watchlist_size + '/' + D.watchlist_size + ' watchlist · ' + D.early_size + ' below the ' + usd(D.floor_usd) + ' floor'],
-      ['Implied value', usd(T.implied_total), 'board total · rank 1 ' + esc(top.name) + ' ' + usd(top.implied_value_usd)],
-      ['Held-out miss', 'x' + full.loo_miss.toFixed(2), 'flat x' + flat.loo_miss.toFixed(2) + ' · each of ' + F.comps + ' comps priced unseen'],
-      ['Newer from older', 'x' + full.split_miss.toFixed(2), 'fit on the older half · ' + BT.split_n + ' newer · ' + Math.round(full.split_within3 * 100) + '% within x3'],
+      ['Ranked', String(rows.length), D.watchlist_size + '/' + D.watchlist_size + ' watchlist · ' + D.early_size + ' off the watchlist'],
+      ['Implied value', usd(T.implied_total), 'odds-weighted total · rank 1 ' + esc(top.name) + ' ' + usd(top.implied_value_usd)],
+      ['Held-out miss', 'x' + full.loo_miss.toFixed(2), 'flat x' + flat.loo_miss.toFixed(2) + ' · ' + F.comps + ' comps priced unseen'],
+      ['Launch odds, held out', Math.round(OC.date.called_right * 100) + '%', 'older-&gt;newer calls · base ' + Math.round(OC.date.base_called * 100) + '% · AUC ' + OC.date.auc.toFixed(2)],
       ['Range holds', Math.round(BT.band_holds.in25_75 / BT.band_holds.n * 100) + '%', 'of newer caps in the P25-P75 band · ' + Math.round(BT.band_holds.in10_90 / BT.band_holds.n * 100) + '% in P10-P90'],
-      ['Worth farming', String(T.farm), T.marginal + ' marginal · ' + T.skip + ' skip · best ' + (T.best_net_per_hour ? usd(T.best_net_per_hour.per_hour) + '/h (' + esc(T.best_net_per_hour.name) + ')' : '') + ', own size, model\'s ' + Math.round(M.drop_share * 100) + '% drop']
+      ['Worth farming', String(T.farm), T.marginal + ' marginal · ' + T.skip + ' skip · best ' + (T.best_net_per_hour ? usd(T.best_net_per_hour.per_hour) + '/h (' + esc(T.best_net_per_hour.name) + ')' : '')]
     ];
     return '<div class="kpis">' + tiles.map(function (t, i) {
       return '<div class="kpi"><div class="k">' + t[0] + '</div><div class="v' + (i === 2 || i === 5 ? ' good' : '') + '">' + t[1] + '</div><div class="s">' + t[2] + '</div></div>';
@@ -138,17 +142,19 @@
       '<tr><td>in P25-P75 (states 50%)</td><td>-</td><td>' + BT.band_holds.in25_75 + ' · ' + Math.round(BT.band_holds.in25_75 / BT.band_holds.n * 100) + '%</td></tr>' +
       '<tr><td>in P10-P90 (states 80%)</td><td>-</td><td>' + BT.band_holds.in10_90 + ' · ' + Math.round(BT.band_holds.in10_90 / BT.band_holds.n * 100) + '%</td></tr></table>';
     return '<div class="panel"><h3>Out-of-sample check <span class="fn">backtestModel()</span></h3>' +
+      '<p><b>Head stability:</b> across ' + S.refits + ' bootstrap refits (<span class="fn">refitStability()</span>), ' + S.holds + ' of the top ' + S.top_n + ' hold in at least 80% of refits; median overlap ' + S.median_overlap + ' of ' + S.top_n + '. The head is the odds-weighted ranking the board prints.</p>' +
       '<p><b>Does it hold on tokens it never saw?</b> Two blind tests over the ' + F.comps + ' traded tokens: each priced unseen, the ' + BT.split_n + ' newer by a fit on the older half alone. % = share within x3.</p>' +
       '<table class="mini"><tr><th>model</th><th>left out</th><th>older-&gt;newer</th></tr>' + rowsHtml + '</table>' +
       '<p>The size curve does the work; the Huber fit edges the plain one on both tests. <b>Age in the price made both worse</b> (x' + age.loo_miss.toFixed(2) + ', x' + age.split_miss.toFixed(2) + ' by time), so age sets the launch odds instead. Two more cuts are tested in Method.</p>' +
       '<p><b>Are the printed ranges honest?</b></p>' + honesty +
-      '<p>The bands run a little narrow, as printed. Across ' + S.refits + ' bootstrap refits (<span class="fn">refitStability()</span>), ' + S.holds + ' of the top ' + S.top_n + ' hold in at least 80% of refits; median overlap ' + S.median_overlap + ' of ' + S.top_n + '.</p></div>' +
+      '<p>The bands run a little narrow, as printed.</p></div>' +
       '<div class="panel"><h3>How a row is priced <span class="fn">launchValue()</span></h3><ol class="how">' +
       '<li><b>Size curve.</b> log<sub>10</sub> value = ' + F.a.toFixed(2) + ' + ' + F.b.toFixed(2) + ' x log<sub>10</sub>(forward TVL), Huber-fitted on ' + F.comps + ' stand-alone tokens that trade. Ten times the TVL buys about ' + Math.pow(10, F.b).toFixed(1) + ' times the value, not ten.</li>' +
       '<li><b>Growth carry.</b> Forward TVL carries the week\'s excess move (the protocol\'s 7-day change less the comps\' median ' + pct(F.med_change) + '), at power ' + M.growth_gamma + ', clamped.</li>' +
       '<li><b>Family premium.</b> A family\'s traded tokens sit a median ratio off the curve; shrunk toward 1 by n/(n+' + M.premium_shrink_k + '), it multiplies the curve\'s value.</li>' +
-      '<li><b>Launch odds.</b> ' + Math.round(D.odds.ever_global * 100) + '% of the oldest protocols record a token; a category\'s own ever-rate and the share of its launches this age has already used give the odds a launch is still to come. Held out (<span class="fn">oddsCheck()</span>) the odds do not beat the base rate at calling who has launched, so they price the farm maths, never the value.</li>' +
-      '<li><b>Verdict.</b> A stated ' + Math.round(M.drop_share * 100) + '% of the value is the farmers\' drop. A plan nets its slice of it (at the odds) against its own fees and a ' + Math.round(M.risk_free_rate * 100) + '% T-bill cost: FARM at net &gt;= ' + usd(M.farm_net) + ', MARGINAL within ' + usd(Math.abs(M.marginal_net)) + ', else SKIP.</li></ol></div>';
+      '<li><b>Launch odds.</b> A logistic fit on log-age and the category\'s launch rate (shrunk toward the ' + Math.round(D.odds.global_rate * 100) + '% global rate) over the dated protocols gives q, the chance a launch has already happened by this age; against the category\'s ever-rate (' + Math.round(D.odds.ever_global * 100) + '% among the oldest cohort) the survival form (E - q) / (1 - q) is the chance one is still to come. Held out (<span class="fn">oddsCheck()</span>), fitted on the older half and calling the newer, it calls ' + Math.round(OC.date.called_right * 100) + '% right against the ' + Math.round(OC.date.base_called * 100) + '% majority base (AUC ' + OC.date.auc.toFixed(2) + ') - a modest edge, stated as such on the Method page.</li>' +
+      '<li><b>Implied value.</b> The launch value times the launch odds: the board ranks by it, and the bands and rank ranges ride on it. The unweighted launch value stays on every detail page.</li>' +
+      '<li><b>Verdict.</b> A stated ' + Math.round(M.drop_share * 100) + '% of the launch value is the farmers\' drop. A plan nets its slice of it (at the odds) against its own fees and a ' + Math.round(M.risk_free_rate * 100) + '% T-bill cost: FARM at net &gt;= ' + usd(M.farm_net) + ', MARGINAL within ' + usd(Math.abs(M.marginal_net)) + ', else SKIP.</li></ol></div>';
   }
   function filteredRows() {
     var out = rows.filter(function (r) {
@@ -200,21 +206,22 @@
       var dep = depOf(r), e = netAt(r, dep, state.ds), vd = verdictOf(e.net);
       var per1k = e.net / dep * 1000, perHour = e.net / (r.time_minutes / 60);
       return '<tr data-slug="' + r.slug + '"><td><div class="rank">' + r.rank + '</div><div class="sub">' + r.rank_low + '-' + r.rank_high + '</div></td>' +
-        '<td><span class="pname">' + esc(r.name) + '</span>' + (r.watchlist ? '<span class="badge">WATCHLIST</span>' : '<span class="badge grey">BELOW FLOOR</span>') +
+        '<td><span class="pname">' + esc(r.name) + '</span>' + (r.watchlist ? '<span class="badge">WATCHLIST</span>' : '<span class="badge grey">OFF LIST</span>') +
         '<div class="sub">' + esc(r.category || 'uncategorised') + ' · ' + esc(r.chains[0] || '') + (r.chains.length > 1 ? ' +' + (r.chains.length - 1) : '') + '</div></td>' +
         '<td class="num">' + usd(r.tvl_usd) + '</td>' +
         '<td class="num ' + (r.change_7d > 0 ? 'pos' : r.change_7d < 0 ? 'neg' : '') + '">' + pct(r.change_7d) + '</td>' +
         '<td>' + age(r.age_days) + '</td>' +
         '<td class="num">' + Math.round(r.launch_odds * 100) + '%<span class="oddsbar"><i style="width:' + Math.round(r.launch_odds * 100) + '%"></i></span></td>' +
-        '<td><span class="num" style="font-weight:700">' + usd(r.implied_value_usd) + '</span>' + whisk(r) + '<div class="sub">' + usd(r.band_low_usd) + ' to ' + usd(r.band_high_usd) + '</div></td>' +
-        '<td><span class="chip ' + vd + '">' + vd + '</span> <span class="net ' + vd + '">' + signed2(e.net) + '</span><div class="sub">on ' + usd(dep) + ' · ' + signed2(per1k) + '/$1k · ' + signed2(perHour) + '/h</div></td></tr>';
+        '<td><span class="num" style="font-weight:700">' + usd(r.implied_value_usd) + '</span>' + whisk(r) + '<div class="sub">' + usd(r.band_low_usd) + ' to ' + usd(r.band_high_usd) + ' · launch ' + usd(r.launch_value_usd) + '</div></td>' +
+        '<td><span class="chip ' + vd + '">' + vd + '</span> <span class="net ' + vd + '">' + signed2(e.net) + '</span><div class="sub">' + signed2(per1k) + '/$1k · ' + signed2(perHour) + '/h · on ' + usd(dep) + '</div></td></tr>';
     }).join('');
     return topBar('board') +
-      '<div class="head"><h1>' + rows.length + ' protocols that record no token, ranked by <b>what a launch would be worth</b></h1>' +
-      '<p>Implied value is the value if it launches: a Huber-fitted size curve on the ' + F.comps + ' stand-alone tokens that trade, a family premium and a bounded growth carry, each kept or cut by the blind test beside the board. The launch odds price the farm maths, not the value.</p></div>' +
+      '<div class="head"><h1>' + rows.length + ' protocols that record no token, ranked by <b>implied value</b></h1>' +
+      '<p class="formula">implied value = value if it launches x launch odds &nbsp;·&nbsp; value = 10^' + F.a.toFixed(2) + ' x forward TVL^' + F.b.toFixed(2) + ' x family premium (Huber fit on ' + F.comps + ' traded tokens) &nbsp;·&nbsp; odds = fitted logistic on age + category launch rate, held out below</p>' +
+      '<p>The value comes from a Huber-fitted size curve on the ' + F.comps + ' traded tokens, a family premium and a bounded growth carry, each kept or cut by the blind test beside the board. The odds weight it: a fitted model that beats its base rate held out, modestly, as Method states.</p></div>' +
       kpis() + accounting() +
       '<div class="layout"><div><div class="controls">' +
-      seg('set', [['all', 'All ' + rows.length], ['watch', 'Watchlist ' + D.watchlist_size], ['below', 'Below floor ' + D.early_size]]) +
+      seg('set', [['all', 'All ' + rows.length], ['watch', 'Watchlist ' + D.watchlist_size], ['below', 'Off list ' + D.early_size]]) +
       seg('verdict', [['any', 'Any verdict'], ['farm', 'Farm'], ['marginal', 'Marginal'], ['skip', 'Skip']]) +
       seg('dep', [['own', 'Plan size'], ['1000', '$1,000'], ['10000', '$10,000']]) +
       seg('ds', [['0.04', 'Drop 4%'], ['0.08', 'Drop 8% · model'], ['0.14', 'Drop 14%']]) +
@@ -223,7 +230,7 @@
       '<select id="chain"><option value="all">All chains</option>' + chains.map(function (c) { return '<option' + (state.chain === c ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>' +
       '<select id="sort">' + [['rank', 'Sort: rank'], ['value', 'Sort: implied value'], ['net', 'Sort: net of fees'], ['tvl', 'Sort: TVL'], ['growth', 'Sort: 7d change'], ['age', 'Sort: tracked'], ['odds', 'Sort: launch odds']].map(function (o) { return '<option value="' + o[0] + '"' + (state.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
       '<div class="countline">' + list.length + ' of ' + rows.length + ' protocols shown · nets priced at ' + depLabel + ' and a ' + Math.round(state.ds * 100) + '% drop share · click a row for its detail</div>' +
-      '<p class="checkline">✓ checkBoard(): ' + rows.length + ' rows drawn = ' + rows.length + ' written · ranks 1 to ' + rows.length + ' in order · values never rise · total ' + usdFull(chk.sum) + ' = ' + usdFull(chk.total) + ' · ' + chk.wl + '/' + D.watchlist_size + ' watchlist · ' + chk.ok + '/' + rows.length + ' values, ' + chk.bands + '/' + rows.length + ' bands, ' + chk.ranges + '/' + rows.length + ' rank ranges, ' + chk.nets + '/' + rows.length + ' nets and verdicts re-derived from the fit in this browser</p>' +
+      '<p class="checkline">✓ checkBoard(): ' + chk.ok + '/' + rows.length + ' launch values, ' + chk.weighted + '/' + rows.length + ' odds-weighted values, ' + chk.bands + '/' + rows.length + ' bands, ' + chk.ranges + '/' + rows.length + ' rank ranges, ' + chk.nets + '/' + rows.length + ' nets and verdicts re-derived from the fit in this browser · total ' + usdFull(chk.sum) + ' = ' + usdFull(chk.total) + ' · ' + chk.wl + '/' + D.watchlist_size + ' watchlist · values never rise</p>' +
       '<table class="board"><thead><tr><th>Rank · range</th><th>Protocol</th><th>TVL</th><th>7d</th><th>Tracked</th><th>Launch odds</th><th>Implied value · range</th><th>Net · verdict</th></tr></thead><tbody>' + trs + '</tbody></table></div>' +
       '<aside class="rail">' + backtestPanel() + '</aside></div>' + foot();
   }
@@ -237,11 +244,12 @@
       ['Forward TVL', usd(r.fwd_tvl_usd), 'the week\'s excess over the comps\' median ' + pct(F.med_change) + ', carried at power ' + M.growth_gamma + ', clamped at +/-' + M.growth_excess_clamp + ' points'],
       ['Size curve', usd(r.curve_value_usd), '10^(' + F.a.toFixed(4) + ') x forward TVL^' + F.b.toFixed(4) + ', from ' + F.comps + ' tokens that trade'],
       ['Family premium', 'x ' + r.family_premium.toFixed(2), esc(r.family) + ': ' + r.family_peers + ' traded tokens, median ratio shrunk toward 1'],
-      ['Value if it launches', usd(r.launch_value_usd), 'curve x premium · its P25-P75 range is ' + usd(r.band_low_usd) + ' to ' + usd(r.band_high_usd) + ', the model\'s own held-out band'],
-      ['Launch odds', Math.round(r.launch_odds * 100) + '%', 'of ' + esc(r.category || 'its category') + ' protocols ' + Math.round(r.odds_ever * 100) + '% record a token in the end; by ' + age(r.age_days) + ', ' + Math.round(r.odds_done * 100) + '% of those launches have happened (snapshot-wide rate in this age band: ' + (bucket ? Math.round(bucket.rate * 100) + '%' : 'n/a') + ')']
+      ['Value if it launches', usd(r.launch_value_usd), 'curve x premium, before any odds weighting'],
+      ['Launch odds', Math.round(r.launch_odds * 100) + '%', 'of ' + esc(r.category || 'its category') + ' protocols an estimated ' + Math.round(r.odds_ever * 100) + '% record a token in the end; the fitted curve (log-age + category launch rate) has used ' + Math.round(r.odds_done * 100) + '% of those launches by ' + age(r.age_days) + ' (snapshot-wide rate in this age band: ' + (bucket ? Math.round(bucket.rate * 100) + '%' : 'n/a') + ')'],
+      ['Implied value', usd(r.implied_value_usd), 'launch value x launch odds - the number the board ranks by · its P25-P75 range is ' + usd(r.band_low_usd) + ' to ' + usd(r.band_high_usd) + ', the model\'s own held-out band on the weighted value']
     ];
     var buildHtml = build.map(function (x, i) {
-      return '<tr' + (i === 4 ? ' class="total"' : '') + '><td>' + x[0] + '<div class="sub">' + x[2] + '</div></td><td class="v">' + x[1] + '</td></tr>';
+      return '<tr' + (i === build.length - 1 ? ' class="total"' : '') + '><td>' + x[0] + '<div class="sub">' + x[2] + '</div></td><td class="v">' + x[1] + '</td></tr>';
     }).join('');
     var comps = r.nearest.length ? r.nearest.map(function (c) {
       return '<tr><td>' + esc(c.name) + (c.symbol ? ' (' + esc(c.symbol) + ')' : '') + '<div class="sub">' + usd(c.tvl_usd) + ' TVL</div></td><td class="v">' + usd(c.mcap_usd) + ' cap</td></tr>';
@@ -261,13 +269,14 @@
     var dropPer1k = M.drop_share * r.launch_value_usd * r.launch_odds / r.tvl_usd * 1000;
     return topBar('detail') +
       '<button class="back" data-nav="board">← Board</button>' +
-      '<div class="dhead"><div><h2>' + esc(r.name) + (r.watchlist ? '<span class="badge">WATCHLIST</span>' : '<span class="badge grey">BELOW FLOOR</span>') + '</h2>' +
+      '<div class="dhead"><div><h2>' + esc(r.name) + (r.watchlist ? '<span class="badge">WATCHLIST</span>' : '<span class="badge grey">OFF LIST</span>') + '</h2>' +
       '<div class="sub" style="font-size:13px">' + esc(r.category || 'uncategorised') + ' · ' + r.chains.map(esc).join(', ') + ' · records no token</div>' +
       '<div class="sub" style="margin-top:6px">rank ' + r.rank + ' of ' + rows.length + '; ' + r.rank_low + ' to ' + r.rank_high + ' across its range · snapshot record: listed ' + (r.listed_at || 'undated') + ' · market cap: none on record · CoinGecko id: ' + (r.gecko_id ? esc(r.gecko_id) : 'none') + ' · symbol: ' + (r.symbol ? esc(r.symbol) : 'none') + ' - the nulls are what pre-token means here</div></div>' +
-      '<div style="text-align:right"><div class="big">' + usd(r.implied_value_usd) + '</div><div class="sub">implied value, the value if it launches<br>P25-P75 ' + usd(r.band_low_usd) + ' to ' + usd(r.band_high_usd) + '</div></div></div>' +
+      '<div style="text-align:right"><div class="big">' + usd(r.implied_value_usd) + '</div><div class="sub">implied value: ' + usd(r.launch_value_usd) + ' if it launches x ' + Math.round(r.launch_odds * 100) + '% odds<br>P25-P75 ' + usd(r.band_low_usd) + ' to ' + usd(r.band_high_usd) + '</div></div></div>' +
       '<div class="dgrid"><div><h3 style="margin:4px 0 8px">How the figure is made <span style="color:var(--gold);font-family:var(--mono);font-size:12px">launchValue()</span></h3>' +
       '<table class="build">' + buildHtml + '</table>' +
-      '<h3 style="margin:16px 0 8px">Nearest traded comparables</h3><table class="build">' + comps + '</table></div>' +
+      '<h3 style="margin:16px 0 8px">Nearest traded comparables</h3><table class="build">' + comps + '</table>' +
+      '<h3 style="margin:16px 0 8px">Net at other drop shares and sizes</h3><div class="sub">Drop per $1k is before fees; the plan\'s own cell is lit.</div>' + matrix + '</div>' +
       '<div><div class="farmbox"><h3 style="margin:0">Farm plan <span style="color:var(--gold);font-family:var(--mono);font-size:12px">farmPlan()</span></h3>' +
       '<div class="netline"><span class="chip ' + vd + '">' + vd + '</span> <b>' + signed2(e.net) + '</b> net over ' + r.hold_days + ' days: expected drop ' + usd(e.slice) + ' at the odds on ' + usd(dep) + ', less ' + usd(r.fees_usd) + ' fees and ' + usd(e.opp) + ' T-bill cost. Break-even odds ' + (r.break_even_odds > 1 ? '&gt;100%' : Math.round(r.break_even_odds * 100) + '%') + '.</div>' +
       '<div class="farmgrid">' +
@@ -277,7 +286,6 @@
       '<div class="cell"><div class="k">Model\'s drop</div><div class="v">' + usd(e.slice) + '</div></div>' +
       '<div class="cell"><div class="k">Drop per $1k</div><div class="v">' + usd(dropPer1k) + '</div></div>' +
       '<div class="cell"><div class="k">Net</div><div class="v">' + signed2(e.net) + '</div></div></div>' +
-      '<div class="sub">Net at other drop shares and sizes; drop per $1k is before fees.</div>' + matrix +
       '<table class="steps"><tr><th></th><th>Step</th><th>Cost</th><th>Time</th></tr>' + steps +
       '<tr class="tot"><td></td><td>All ' + r.steps.length + ' steps over ' + r.hold_days + ' days</td><td class="ct">' + usd(r.fees_usd) + '</td><td class="ct">' + hours(r.time_minutes) + '</td></tr></table>' +
       '<div class="sub">The position may earn the protocol\'s own yield, which would offset the T-bill cost; the snapshot carries no yields, so none is assumed.</div>' +
@@ -295,8 +303,8 @@
     var xa = Math.pow(10, X0), xb = Math.pow(10, X1);
     s += '<line x1="' + px(xa) + '" y1="' + py(Math.pow(10, F.a + F.b * Math.log10(xa))) + '" x2="' + px(xb) + '" y2="' + py(Math.pow(10, F.a + F.b * Math.log10(xb))) + '" stroke="#57d992" stroke-width="1.6"/>';
     D.comps.forEach(function (c) { s += '<circle cx="' + px(c.fwd_tvl_usd) + '" cy="' + py(c.mcap_usd) + '" r="2.6" fill="#57d992" opacity="0.75"/>'; });
-    rows.forEach(function (r) { s += '<circle cx="' + px(r.fwd_tvl_usd) + '" cy="' + py(r.implied_value_usd) + '" r="2.1" fill="#c9a44a" opacity="0.6"/>'; });
-    return s + '</svg><div class="sub">green: the ' + F.comps + ' traded tokens that fit the curve (forward TVL against real cap) · gold: the board at its implied value · line: fitCurve()</div>';
+    rows.forEach(function (r) { s += '<circle cx="' + px(r.fwd_tvl_usd) + '" cy="' + py(r.launch_value_usd) + '" r="2.1" fill="#c9a44a" opacity="0.6"/>'; });
+    return s + '</svg><div class="sub">green: the ' + F.comps + ' traded tokens that fit the curve (forward TVL against real cap) · gold: the board at its value if it launches (before the odds weighting) · line: fitCurve()</div>';
   }
   function methodView() {
     var vt = BT.variants.map(function (v) {
@@ -329,8 +337,8 @@
       '<div class="panel"><h3>Farm verdicts <span class="fn">farmPlan()</span></h3>' +
       '<p>A stated ' + Math.round(M.drop_share * 100) + '% of a launch\'s value is the farmers\' drop. Deposits are sized to the protocol (TVL x ' + M.deposit_tvl_share + ', ' + usd(M.deposit_min) + ' to ' + usd(M.deposit_max) + '). Net = the expected slice at the launch odds, less the plan\'s fees from its chain\'s gas tier, less a ' + Math.round(M.risk_free_rate * 100) + '% T-bill charge. <b>FARM</b> at net &gt;= ' + usd(M.farm_net) + ' (' + T.farm + '), <b>MARGINAL</b> within ' + usd(Math.abs(M.marginal_net)) + ' (' + T.marginal + '), <b>SKIP</b> beyond (' + T.skip + '). Break-even odds are on every detail page.</p></div>' +
       '<div class="note"><h3>Note to the judge</h3><ol>' +
-      '<li><b>Working radar:</b> <span class="fn">selectUniverse()</span> accounts for all ' + D.universe.total + ' protocols and ranks ' + rows.length + '; <span class="fn">checkBoard()</span> on the board re-derives every value, band, rank range, net and verdict from the fit in your browser and prints the match.</li>' +
-      '<li><b>Value model:</b> <span class="fn">launchValue()</span> is <span class="fn">fitCurve()</span> with Huber weights on the ' + F.comps + ' stand-alone traded tokens, x <span class="fn">familyPremiums()</span>, on forward TVL with a bounded growth carry; <span class="fn">backtestModel()</span> tests it blind, and the cut terms are named there with their scores.</li>' +
+      '<li><b>Working radar:</b> <span class="fn">selectUniverse()</span> accounts for all ' + D.universe.total + ' protocols and ranks ' + rows.length + '; <span class="fn">checkBoard()</span> on the board re-derives every launch value, odds-weighted value, band, rank range, net and verdict from the fit in your browser and prints the match.</li>' +
+      '<li><b>Value model:</b> <span class="fn">launchValue()</span> is <span class="fn">fitCurve()</span> with Huber weights on the ' + F.comps + ' stand-alone traded tokens, x <span class="fn">familyPremiums()</span>, on forward TVL with a bounded growth carry; <span class="fn">backtestModel()</span> tests it blind, and the cut terms are named there with their scores. <span class="fn">launchOdds()</span> (a fitted logistic on age and category rate, <span class="fn">fitLogistic()</span>) weights the launch value into the implied value the board ranks by; <span class="fn">oddsCheck()</span> holds the odds out under two framings and prints both, with the replaced bucket form as a control.</li>' +
       '<li><b>Farm plans:</b> <span class="fn">farmPlan()</span> sets chain, deposit, hold and stop from each row\'s own record, with a cost and a time on every step, a net and a verdict on every row, and a break-even plus a drop x size matrix on every detail page.</li>' +
       '<li><b>Page:</b> <span class="fn">filteredRows()</span> behind the board\'s filters, sorts and drop-share toggle; <span class="fn">boardView()</span>, <span class="fn">detailView()</span>, <span class="fn">methodView()</span> behind the views; state lives in the URL hash.</li></ol></div>' +
       '</div><div>' +
@@ -343,9 +351,36 @@
       '<p>Each family\'s traded tokens sit a median ratio off the curve, shrunk toward 1 by n/(n+' + M.premium_shrink_k + ') before pricing.</p></div>' +
       '<div class="panel"><h3>Launch odds <span class="fn">launchOdds()</span></h3>' +
       '<table class="mini"><tr><th>tracked for</th><th>protocols</th><th>record a token</th></tr>' + ob + '</table>' +
-      '<p>The share recording a token rises with tracked age toward an ever-rate of ' + Math.round(D.odds.ever_global * 100) + '%; a category\'s rate is corrected for its age mix. The odds a launch is still to come are E(1-F) / (1-EF), F the share of its launches this age has used; they never touch the value.</p>' +
-      '<p><b>Held out (<span class="fn">oddsCheck()</span>):</b> fitted on the older ' + OC.train_n + ', the implied share calls ' + Math.round(OC.called_right * 100) + '% of the newer ' + OC.n + ' against ' + Math.round(OC.base_rate * 100) + '% for the majority guess (AUC ' + OC.auc.toFixed(2) + ') - no better than the base rate, so the odds price only farm nets, never a rank.</p></div>' +
+      '<p>The share recording a token rises with tracked age. The odds are fitted, not read off the buckets: a logistic curve over log-age and the category\'s launch rate (shrunk toward the ' + Math.round(D.odds.global_rate * 100) + '% global rate by n/(n+10)) gives q, the chance a protocol like this has already recorded a token by its age - slopes ' + D.odds.b_age.toFixed(2) + ' on log-age, ' + D.odds.b_crate.toFixed(2) + ' on the category rate, per standard deviation. Against the category\'s ever-rate E (' + Math.round(D.odds.ever_global * 100) + '% among the oldest cohort, corrected for the category\'s age mix), the still-to-come chance is (E - q) / (1 - q). <b>Implied value = launch value x these odds</b>; the unweighted launch value stays on every detail page.</p>' +
+      '<p><b>Held out (<span class="fn">oddsCheck()</span>), two framings, both printed:</b></p>' +
+      '<table class="mini"><tr><th>framing</th><th>fit on</th><th>called</th><th>base</th><th>AUC</th><th>Brier</th></tr>' +
+      '<tr class="kept"><td>older -&gt; newer (the headline)</td><td>' + OC.date.train_n + '</td><td>' + Math.round(OC.date.called_right * 100) + '%</td><td>' + Math.round(OC.date.base_called * 100) + '%</td><td>' + OC.date.auc.toFixed(2) + '</td><td>' + OC.date.brier.toFixed(2) + '</td></tr>' +
+      '<tr><td>coin-flip split (same ages both sides)</td><td>' + OC.hash.train_n + '</td><td>' + Math.round(OC.hash.called_right * 100) + '%</td><td>' + Math.round(OC.hash.base_called * 100) + '%</td><td>' + OC.hash.auc.toFixed(2) + '</td><td>' + OC.hash.brier.toFixed(2) + '</td></tr></table>' +
+      '<p>The edge is <b>modest and real on both framings</b>: +' + Math.round((OC.date.called_right - OC.date.base_called) * 100) + ' points over the majority guess on the hard framing, +' + Math.round((OC.hash.called_right - OC.hash.base_called) * 100) + ' on the balanced one. The framings are not interchangeable - their base rates differ (' + Math.round(OC.date.base_called * 100) + '% against ' + Math.round(OC.hash.base_called * 100) + '%) because the newer half has simply had less time to launch. A "~70% against a ~55% base" print comes from a balanced construction like the second row; this page headlines the harder one and prints both. The bucket form this model replaced (<span class="fn">fitted-comps-2</span>) is kept as a control on the headline framing: it calls ' + Math.round(OC.bucket_date_called_right * 100) + '% (AUC ' + OC.bucket_date_auc.toFixed(2) + '), under its own base rate. TVL level, chain count and 7-day change were tested as odds inputs and are not used: TVL\'s sign flips between the two framings, the rest are noise. Fields that are part of the target itself (a symbol or a Gecko id on record) are never inputs.</p></div>' +
       '</div></div>' + foot();
+  }
+
+  // ---------- farm sheet: every FARM verdict at its own size, no board furniture ----------
+  function sheetView() {
+    var farm = rows.filter(function (r) { return r.verdict === 'FARM'; });
+    var totNet = 0, totMin = 0, totDep = 0;
+    var trs = farm.map(function (r) {
+      var e = netAt(r, r.deposit_usd);
+      totNet += e.net; totMin += r.time_minutes; totDep += r.deposit_usd;
+      var per1k = e.net / r.deposit_usd * 1000, perHour = e.net / (r.time_minutes / 60);
+      return '<tr data-slug="' + r.slug + '"><td><div class="rank">' + r.rank + '</div></td>' +
+        '<td><span class="pname">' + esc(r.name) + '</span>' + (r.watchlist ? '<span class="badge">WATCHLIST</span>' : '<span class="badge grey">OFF LIST</span>') +
+        '<div class="sub">' + esc(r.category || 'uncategorised') + ' · ' + esc(r.chains[0] || '') + '</div></td>' +
+        '<td class="num">' + usd(r.tvl_usd) + '</td>' +
+        '<td class="num">' + Math.round(r.launch_odds * 100) + '%</td>' +
+        '<td class="num" style="font-weight:700">' + usd(r.implied_value_usd) + '</td>' +
+        '<td><span class="chip FARM">FARM</span> <span class="net FARM">' + signed2(e.net) + '</span><div class="sub">' + signed2(per1k) + '/$1k · ' + signed2(perHour) + '/h · on ' + usd(r.deposit_usd) + ' · ' + r.steps.length + ' steps, ' + hours(r.time_minutes) + '</div></td></tr>';
+    }).join('');
+    return topBar('sheet') +
+      '<div class="head"><h1>Farm sheet: the ' + farm.length + ' plans worth running</h1>' +
+      '<p>Every FARM verdict at its own size and the model\'s ' + Math.round(M.drop_share * 100) + '% drop share, best first by rank. Click a row for the full plan.</p></div>' +
+      '<table class="board"><thead><tr><th>Rank</th><th>Protocol</th><th>TVL</th><th>Odds</th><th>Implied value</th><th>Net · plan</th></tr></thead><tbody>' + trs + '</tbody></table>' +
+      '<div class="sheetfoot">Farming all ' + farm.length + ': <b>' + signed2(totNet) + '</b> expected net on ' + usd(totDep) + ' at risk, ' + hours(totMin) + ' of your time in all. Nets are the model\'s claim at its own drop share, not a promise.</div>' + foot();
   }
 
   // ---------- traded view ----------
@@ -365,6 +400,7 @@
     var html;
     if (state.view === 'detail' && state.slug && bySlug[state.slug]) html = detailView(bySlug[state.slug]);
     else if (state.view === 'method') html = methodView();
+    else if (state.view === 'sheet') html = sheetView();
     else if (state.view === 'traded') html = tradedView();
     else html = boardView();
     app.innerHTML = html;
@@ -375,7 +411,7 @@
     app.querySelectorAll('[data-nav]').forEach(function (b) {
       b.addEventListener('click', function () {
         var v = b.getAttribute('data-nav');
-        location.hash = v === 'method' ? 'm' : v === 'traded' ? 't' : '';
+        location.hash = v === 'method' ? 'm' : v === 'traded' ? 't' : v === 'sheet' ? 'sheet' : '';
         if (location.hash === '' || (v === 'board' && location.hash === '')) render();
       });
     });

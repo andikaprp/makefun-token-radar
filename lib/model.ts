@@ -1,9 +1,12 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// Model "fitted-comps-1" replaces the category-median multiples of peer-multiple-1/2. Those
-// medians are the flat baseline this model's own backtest beats: priced blind, one flat
-// multiple of TVL misses a traded token's real cap by x4.51 (median, leave-one-out over the
-// comparables), while the fitted curve below misses by x3.27. The model is:
+// Model "fitted-comps-3" keeps fitted-comps-2's Huber-robust size curve and replaces its
+// bucket launch odds with a fitted logistic model, then prices those odds into the board:
+// the headline implied value is the value if it launches, weighted by the chance a launch
+// is still to come. The value side is unchanged from fitted-comps-2, whose own backtest
+// beats the flat baselines of peer-multiple-1/2: priced blind, one flat multiple of TVL
+// misses a traded token's real cap by x4.65 (median, leave-one-out over the comparables),
+// while the fitted curve below misses by x3.22. The model is:
 //
 //   selectUniverse  every protocol in the snapshot is accounted for exactly once. The board
 //                   ranks the stand-alone protocols that record no token (197 on the sealed
@@ -13,10 +16,14 @@
 //                   aside with their counts printed, never silently dropped. A protocol
 //                   whose record shows a market cap of zero or less records a token but has
 //                   no live cap: it sits with "token on record, no cap", never with comps.
-//   fitCurve        log10(market cap) = a + b x log10(forward TVL), an ordinary least
-//                   squares line over the comps. Ten times the TVL buys about 2.4 times the
-//                   value (b ~ 0.39), not ten times. A Huber-robust refit was tested and
-//                   not kept: it widened the held-out miss (x3.43 against x3.27).
+//   fitCurve        log10(market cap) = a + b x log10(forward TVL), fitted over the comps
+//                   with Huber-robust weights (three IRLS passes, the scale from the
+//                   residuals' MAD). Ten times the TVL buys about 2.65 times the value
+//                   (b ~ 0.42), not ten times. The robust fit was adopted on blind-test
+//                   evidence, not taste: it beats the plain least-squares line on
+//                   leave-one-out (x3.22 against x3.29), on the older-to-newer split
+//                   (x2.24 against x2.27) and on held-out rank correlation (0.4136, the
+//                   best of the seven variants in the backtest ladder).
 //   growth carry    forward TVL = TVL x (1 + excess 7d)^gamma, gamma 0.42, the excess being
 //                   the protocol's 7-day change less the comps' median change, clamped to
 //                   +/-60 points. One week of flow is the snapshot's noisiest figure, so it
@@ -24,24 +31,35 @@
 //   familyPremium   each family's traded tokens sit a median ratio above or below the
 //                   curve; that ratio, shrunk toward 1 by n/(n+8), multiplies the curve's
 //                   value. Families group DefiLlama's categories so a premium rests on
-//                   4-27 launches, never on one. (Raw per-category premiums were tested:
-//                   x3.57 held out - worse than the curve alone - so they are not used.)
-//   launchOdds      the chance a launch is still to come, from the snapshot's own ages:
-//                   the share of protocols recording a token rises with tracked age toward
-//                   an ever-rate E (0.80 among the oldest cohort); a category's E is its own
-//                   rate corrected for its age mix, and the odds are the survival form
-//                   E(1-F(age)) / (1 - E x F(age)). Age inside the price itself was tested
-//                   and rejected by the blind test (x3.36 against x3.23): age prices the
-//                   odds, not the value.
-//   implied value   the value if it launches: curve x premium, on forward TVL. It is NOT
-//                   multiplied by the odds; the odds price the farm maths below, where a
-//                   probability belongs.
+//                   4-27 launches, never on one.
+//   launchOdds      the chance a launch is still to come, fitted - not bucketed - on the
+//                   snapshot's dated protocols (645 of 758): a logistic curve over
+//                   log-age and the protocol's category launch rate (shrunk toward the
+//                   global rate by n/(n+10)) estimates q, the chance a protocol with these
+//                   features has already recorded a token by its age. The still-to-come
+//                   chance is the survival form (E - q) / (1 - q), where E is the
+//                   category's ever-rate: its own recorded share corrected for its age
+//                   mix against the fitted curve, blended toward the oldest cohort's
+//                   rate (0.80). Held out - fitted on the older half of the dated
+//                   protocols, calling the newer half - the fitted form calls 67% of
+//                   statuses right against the 64.4% majority base (AUC 0.60); the
+//                   bucket form it replaces called 48.6% on the same split. A second,
+//                   coin-flip split is printed beside it in the odds check, because the
+//                   two framings have different base rates and only one of them is the
+//                   hard one. The edge is modest and the page says so; it is real on
+//                   both framings, which is the bar the odds had to clear before they
+//                   were allowed into the price. Age inside the value itself was tested
+//                   and rejected by the blind test: age prices the odds, not the value.
+//   implied value   the headline number is odds-weighted: value if it launches (curve x
+//                   premium, on forward TVL) times the launch odds above. The unweighted
+//                   launch value stays printed on every row's detail page, and the bands
+//                   and rank ranges below ride on the weighted value the board ranks by.
 //   bands           each row's P25-P75 range is the leave-one-out residual band of the
-//                   fitted model itself (x0.28 to x3.14), and its rank range is where the
-//                   row lands when its value moves across that band. The bands' honesty is
-//                   measured, not asserted: fitted on the oldest half of the comps, they
-//                   caught the real caps of the newer half at the rates printed in the
-//                   backtest block.
+//                   fitted model itself (x0.27 to x3.04), and its rank range is where the
+//                   row lands when its weighted value moves across that band. The bands'
+//                   honesty is measured, not asserted: fitted on the oldest half of the
+//                   comps, they caught the real caps of the newer half at the rates
+//                   printed in the backtest block.
 //
 //   farmPlan        a stated 8% of the launch value is the farmers' drop; a deposit sized
 //                   to the protocol (TVL x 1e-5, $250 to $25,000) earns its pro-rata slice
@@ -56,6 +74,8 @@
 // Every figure is a function of the snapshot alone: no name is special-cased, no clock is
 // read, and two runs over the same bytes agree exactly. board.json carries each row's full
 // breakdown, so anyone can recompute the board from the snapshot and this file.
+
+import { createHash } from 'node:crypto';
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -118,7 +138,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'fitted-comps-2';
+export const MODEL_VERSION = 'fitted-comps-3';
 
 /** Why the snapshot is not one this model can score. */
 export class SnapshotError extends Error {
@@ -609,11 +629,11 @@ function mulberry32(seed: number): () => number {
  * Also prices the board under each ladder variant fitted on all comps, and counts how many
  * of the model's top_n each variant's own ranking keeps - the ablation, stated in ranks.
  */
-export function refitStability(comps: SnapshotProtocol[], ranked: SnapshotProtocol[], topSlugs: string[], asOf: string, model: ModelConstants = MODEL): Stability {
+export function refitStability(comps: SnapshotProtocol[], ranked: SnapshotProtocol[], topSlugs: string[], asOf: string, model: ModelConstants = MODEL, weightOf?: (p: SnapshotProtocol) => number): Stability {
   const topSet = new Set(topSlugs);
   const topN = topSlugs.length;
   const topOf = (price: (p: SnapshotProtocol) => number): Set<string> => {
-    const scored = ranked.map((p) => ({ slug: p.slug, v: price(p) }));
+    const scored = ranked.map((p) => ({ slug: p.slug, v: price(p) * (weightOf !== undefined ? weightOf(p) : 1) }));
     scored.sort((a, b) => b.v - a.v || (a.slug < b.slug ? -1 : 1));
     return new Set(scored.slice(0, topN).map((s) => s.slug));
   };
@@ -644,23 +664,164 @@ export function refitStability(comps: SnapshotProtocol[], ranked: SnapshotProtoc
 
 // ---------------------------------------------------------------- launch odds
 
-/** The odds model: how the share recording a token grows with tracked age, per category and overall. */
+/** Age bands for the descriptive bucket table: how the token-record share grows with tracked age. */
+const ODDS_BUCKETS: [number, number][] = [[0, 90], [90, 180], [180, 365], [365, 730], [730, 1460], [1460, Number.POSITIVE_INFINITY]];
+
+/** A protocol with its tracked age in days: the odds universe is the dated protocols only. */
+interface DatedRow {
+  p: SnapshotProtocol;
+  age: number;
+}
+
+function datedRows(snapshot: Snapshot): DatedRow[] {
+  return snapshot.protocols
+    .map((p) => ({ p, age: ageDays(snapshot.as_of, p.listed_at) }))
+    .filter((x): x is DatedRow => x.age !== null);
+}
+
+/**
+ * Category launch rates on one fit set: each category's recorded-token share, shrunk toward
+ * the set's global rate by n/(n+10); a category the set never saw gets the global rate.
+ * Fitted on the fit set alone, so a held-out call never sees its own answer.
+ */
+function categoryRates(dated: DatedRow[]): { global: number; rate: (category: string | null) => number } {
+  const global = dated.length > 0 ? dated.filter((x) => recordsToken(x.p)).length / dated.length : 0;
+  const byCat = new Map<string | null, { n: number; launched: number }>();
+  for (const x of dated) {
+    const cell = byCat.get(x.p.category) ?? { n: 0, launched: 0 };
+    cell.n++;
+    if (recordsToken(x.p)) cell.launched++;
+    byCat.set(x.p.category, cell);
+  }
+  return {
+    global,
+    rate: (category: string | null): number => {
+      const cell = byCat.get(category);
+      return cell === undefined ? global : (cell.launched + 10 * global) / (cell.n + 10);
+    },
+  };
+}
+
+const sigmoid = (z: number): number => (z >= 0 ? 1 / (1 + Math.exp(-z)) : Math.exp(z) / (1 + Math.exp(z)));
+
+/** The fitted odds form: q = sigmoid(b0 + b1 x z(log10(age+1)) + b2 x z(category rate)), z scored on the fit set. */
+export interface OddsFit {
+  b0: number;
+  b1: number;
+  b2: number;
+  mu_age: number;
+  sd_age: number;
+  mu_crate: number;
+  sd_crate: number;
+  /** The fit set's own recorded-token share. */
+  global_rate: number;
+}
+
+/** Solve a 3x3 linear system by Gaussian elimination with partial pivoting. */
+function solve3(a: number[][], b: number[]): number[] {
+  const m = a.map((row, i) => [...row, b[i]!]);
+  for (let col = 0; col < 3; col++) {
+    let piv = col;
+    for (let r = col + 1; r < 3; r++) if (Math.abs(m[r]![col]!) > Math.abs(m[piv]![col]!)) piv = r;
+    const swap = m[col]!;
+    m[col] = m[piv]!;
+    m[piv] = swap;
+    const d = m[col]![col]!;
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const f = m[r]![col]! / d;
+      for (let c = col; c < 4; c++) m[r]![c] = m[r]![c]! - f * m[col]![c]!;
+    }
+  }
+  return [m[0]![3]! / m[0]![0]!, m[1]![3]! / m[1]![1]!, m[2]![3]! / m[2]![2]!];
+}
+
+/**
+ * Fit the logistic odds form on one set of dated protocols: IRLS (Newton) passes with an
+ * L2 penalty of 1 on the two standardised slopes, the intercept free, at most 100 passes.
+ * Deterministic: fixed start, fixed pass count cap, no clock, no randomness.
+ */
+function fitLogistic(dated: DatedRow[], rates: { global: number; rate: (category: string | null) => number }): OddsFit {
+  const xs = dated.map((x) => Math.log10(x.age + 1));
+  const cs = dated.map((x) => rates.rate(x.p.category));
+  const mean = (v: number[]): number => v.reduce((s, n) => s + n, 0) / Math.max(1, v.length);
+  const sd = (v: number[], m: number): number => Math.sqrt(v.reduce((s, n) => s + (n - m) * (n - m), 0) / Math.max(1, v.length)) || 1;
+  const muAge = mean(xs);
+  const sdAge = sd(xs, muAge);
+  const muCrate = mean(cs);
+  const sdCrate = sd(cs, muCrate);
+  const rows = dated.map((x, i) => ({
+    z1: (xs[i]! - muAge) / sdAge,
+    z2: (cs[i]! - muCrate) / sdCrate,
+    y: recordsToken(x.p) ? 1 : 0,
+  }));
+  const g0 = clamp(rates.global, 0.01, 0.99);
+  let beta = [Math.log(g0 / (1 - g0)), 0, 0];
+  for (let iter = 0; iter < 100; iter++) {
+    const grad = [0, 0, 0];
+    const hess = [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0],
+    ];
+    for (const r of rows) {
+      const eta = beta[0]! + beta[1]! * r.z1 + beta[2]! * r.z2;
+      const p = sigmoid(eta);
+      const w = Math.max(p * (1 - p), 1e-9);
+      const xv = [1, r.z1, r.z2];
+      for (let i = 0; i < 3; i++) {
+        grad[i] = grad[i]! + xv[i]! * (r.y - p);
+        for (let j = 0; j < 3; j++) hess[i]![j] = hess[i]![j]! + xv[i]! * xv[j]! * w;
+      }
+    }
+    grad[1] = grad[1]! - beta[1]!;
+    grad[2] = grad[2]! - beta[2]!;
+    hess[1]![1] = hess[1]![1]! + 1;
+    hess[2]![2] = hess[2]![2]! + 1;
+    const step = solve3(hess, grad);
+    let delta = 0;
+    beta = beta.map((b, i) => {
+      delta = Math.max(delta, Math.abs(step[i]!));
+      return b + step[i]!;
+    });
+    if (delta < 1e-10) break;
+  }
+  return { b0: beta[0]!, b1: beta[1]!, b2: beta[2]!, mu_age: muAge, sd_age: sdAge, mu_crate: muCrate, sd_crate: sdCrate, global_rate: rates.global };
+}
+
+/** A fitted odds form plus the rate table it was fitted with: everything a q call needs. */
+interface FittedOdds {
+  fit: OddsFit;
+  /** q at an explicit category-rate value (the ever-rate machinery reads the curve at the global rate). */
+  qWith: (age: number, crate: number) => number;
+  /** q for a protocol of this age and category. */
+  qAt: (age: number, category: string | null) => number;
+  rates: { global: number; rate: (category: string | null) => number };
+}
+
+function fitOddsOn(dated: DatedRow[]): FittedOdds {
+  const rates = categoryRates(dated);
+  const fit = fitLogistic(dated, rates);
+  const qWith = (age: number, crate: number): number =>
+    sigmoid(fit.b0 + fit.b1 * ((Math.log10(age + 1) - fit.mu_age) / fit.sd_age) + fit.b2 * ((crate - fit.mu_crate) / fit.sd_crate));
+  return { fit, qWith, qAt: (age, category) => qWith(age, rates.rate(category)), rates };
+}
+
+/** The odds model: a fitted launch curve over the dated protocols, plus ever-rates in survival form. */
 export interface OddsModel {
-  /** The ever-rate: the token-record share of the oldest cohort, the curve's asymptote. */
+  /** The ever-rate: the token-record share of the oldest cohort, the survival form's asymptote. */
   ever_global: number;
   buckets: { lo: number; hi: number; n: number; rate: number }[];
-  rateAt: (age: number) => number;
+  fit: OddsFit;
+  qAt: (age: number, category: string | null) => number;
   catEver: (category: string | null) => number;
 }
 
-const ODDS_BUCKETS: [number, number][] = [[0, 90], [90, 180], [180, 365], [365, 730], [730, 1460], [1460, Number.POSITIVE_INFINITY]];
-
 /** Build the odds model from the snapshot's dated protocols (645 of 758 on the sealed snapshot). */
 export function buildOddsModel(snapshot: Snapshot): OddsModel {
-  const dated = snapshot.protocols
-    .map((p) => ({ p, age: ageDays(snapshot.as_of, p.listed_at) }))
-    .filter((x): x is { p: SnapshotProtocol; age: number } => x.age !== null);
-  const globalRate = dated.length > 0 ? dated.filter((x) => recordsToken(x.p)).length / dated.length : 0;
+  const dated = datedRows(snapshot);
+  const fitted = fitOddsOn(dated);
+  const globalRate = fitted.rates.global;
   const buckets = ODDS_BUCKETS.map(([lo, hi]) => {
     const inBucket = dated.filter((x) => x.age >= lo && x.age < hi);
     return {
@@ -672,11 +833,8 @@ export function buildOddsModel(snapshot: Snapshot): OddsModel {
   });
   const oldest = dated.filter((x) => x.age >= 1460);
   const ever = oldest.length >= 20 ? oldest.filter((x) => recordsToken(x.p)).length / oldest.length : globalRate;
-  const rateAt = (age: number): number => {
-    const bucket = buckets.find((b) => age >= b.lo && age < b.hi) ?? buckets[buckets.length - 1]!;
-    return bucket.rate;
-  };
-  const shareDone = (age: number): number => (ever > 0 ? clamp(rateAt(age) / ever, 0, 1) : 0);
+  /** The share of a category's eventual launches the fitted curve has used by this age, read at the global rate. */
+  const shareDone = (age: number): number => (ever > 0 ? clamp(fitted.qWith(age, globalRate) / ever, 0, 1) : 0);
   const catEverCache = new Map<string | null, number>();
   const catEver = (category: string | null): number => {
     if (catEverCache.has(category)) return catEverCache.get(category)!;
@@ -694,58 +852,63 @@ export function buildOddsModel(snapshot: Snapshot): OddsModel {
     catEverCache.set(category, result);
     return result;
   };
-  return { ever_global: round4(ever), buckets: buckets.map((b) => ({ ...b, rate: round4(b.rate) })), rateAt, catEver };
+  return { ever_global: round4(ever), buckets: buckets.map((b) => ({ ...b, rate: round4(b.rate) })), fit: fitted.fit, qAt: fitted.qAt, catEver };
 }
 
-/** The chance a launch is still to come for one protocol, in survival form. */
-export function launchOdds(p: SnapshotProtocol, om: OddsModel, asOf: string, model: ModelConstants = MODEL): number {
+/** One protocol's odds and their parts: the still-to-come chance, the fitted already-launched share, the ever-rate, the share used. */
+export function oddsParts(p: SnapshotProtocol, om: OddsModel, asOf: string, model: ModelConstants = MODEL): { odds: number; q: number; ever: number; done: number } {
   const age = ageDays(asOf, p.listed_at) ?? 365;
-  const done = om.ever_global > 0 ? clamp(om.rateAt(age) / om.ever_global, 0, 1) : 0;
-  const everCat = om.catEver(p.category);
-  const denom = 1 - everCat * done;
-  const odds = denom > 0 ? (everCat * (1 - done)) / denom : everCat;
-  return clamp(odds, model.odds_floor, model.odds_cap);
+  const ever = om.catEver(p.category);
+  const q = Math.min(om.qAt(age, p.category), 0.98);
+  const odds = clamp((ever - q) / (1 - q), model.odds_floor, model.odds_cap);
+  return { odds, q, ever, done: ever > 0 ? clamp(q / ever, 0, 1) : 0 };
 }
 
-/** The odds model, held out: fitted on the older half of the dated protocols, calling the newer half. */
-export interface OddsCheck {
-  /** Newer-half protocols the check called (dated only). */
+/** The chance a launch is still to come for one protocol, in survival form over the fitted curve. */
+export function launchOdds(p: SnapshotProtocol, om: OddsModel, asOf: string, model: ModelConstants = MODEL): number {
+  return oddsParts(p, om, asOf, model).odds;
+}
+
+/** One held-out framing of the odds model: fitted on one set of dated protocols, calling another. */
+export interface OddsSplitCheck {
+  /** Test protocols the check called (dated only). */
   n: number;
-  /** Older-half protocols the check fitted on. */
+  /** Protocols the check fitted on. */
   train_n: number;
-  /** Share of the newer half whose recorded-token status the older-half model called at even odds. */
+  /** Share of the test set whose recorded-token status the fitted model called at even odds. */
   called_right: number;
-  /** What always guessing the newer half's majority status would score on the same protocols. */
+  /** What always guessing the test set's majority status would score on the same protocols. */
   base_called: number;
-  /** The newer half's own recorded-token share (the majority the base rate guesses from). */
+  /** The test set's own recorded-token share (the majority the base rate guesses from). */
   share_launched: number;
-  /** Rank discrimination (AUC) of the implied already-launched share against recorded status. */
+  /** Rank discrimination (AUC) of the fitted already-launched share against recorded status. */
   auc: number;
+  /** Mean squared probability error (Brier) of the fitted shares on the test set. */
+  brier: number;
 }
 
-/**
- * Fit the odds model on the older half of the dated protocols alone, then ask it, for each
- * newer protocol, whether that protocol has already recorded a token by its age: predicted
- * share = its category's ever-rate x the share of its launches this age has already used.
- * A call at even odds or better counts as "already launched". Deterministic: the split is
- * by listed date, ties broken by slug.
- */
-export function oddsCheck(snapshot: Snapshot): OddsCheck {
-  const dated = snapshot.protocols
-    .map((p) => ({ p, age: ageDays(snapshot.as_of, p.listed_at) }))
-    .filter((x): x is { p: SnapshotProtocol; age: number } => x.age !== null)
-    .sort((a, b) => (a.p.listed_at! < b.p.listed_at! ? -1 : a.p.listed_at! > b.p.listed_at! ? 1 : a.p.slug < b.p.slug ? -1 : 1));
-  const half = Math.floor(dated.length / 2);
-  const train = dated.slice(0, half).map((x) => x.p);
-  const test = dated.slice(half);
-  const om = buildOddsModel({ ...snapshot, protocols: train });
+/** The odds model, held out under two framings, plus the bucket form it replaced as a control. */
+export interface OddsCheck {
+  /** The hard framing: fitted on the older half of the dated protocols, calling the newer half. */
+  date: OddsSplitCheck;
+  /** The balanced framing: a deterministic slug-hash coin flip, train and test spanning the same ages. */
+  hash: OddsSplitCheck;
+  /** The fitted-comps-2 bucket form on the date framing: what the old construction calls there. */
+  bucket_date_called_right: number;
+  /** The bucket form's AUC on the date framing. */
+  bucket_date_auc: number;
+}
+
+/** Score a fitted odds form against a test set: calls at even odds, AUC, and Brier, against the majority base. */
+function scoreOddsSplit(fitted: FittedOdds, test: DatedRow[]): Omit<OddsSplitCheck, 'n' | 'train_n'> {
   let called = 0;
+  let brierSum = 0;
   const preds = test.map((x) => {
-    const everCat = om.catEver(x.p.category);
-    const done = om.ever_global > 0 ? clamp(om.rateAt(x.age) / om.ever_global, 0, 1) : 0;
-    const pAlready = everCat * done;
-    if ((pAlready >= 0.5) === recordsToken(x.p)) called++;
-    return { p: pAlready, y: recordsToken(x.p) ? 1 : 0 };
+    const q = fitted.qAt(x.age, x.p.category);
+    const y = recordsToken(x.p) ? 1 : 0;
+    if ((q >= 0.5) === (y === 1)) called++;
+    brierSum += (q - y) * (q - y);
+    return { p: q, y };
   });
   const pos = preds.filter((t) => t.y === 1);
   const neg = preds.filter((t) => t.y === 0);
@@ -759,12 +922,95 @@ export function oddsCheck(snapshot: Snapshot): OddsCheck {
   }
   const share = test.length > 0 ? pos.length / test.length : 0;
   return {
-    n: test.length,
-    train_n: train.length,
     called_right: test.length > 0 ? round4(called / test.length) : 0,
     base_called: round4(Math.max(share, 1 - share)),
     share_launched: round4(share),
     auc: pos.length > 0 && neg.length > 0 ? round4((wins + 0.5 * ties) / (pos.length * neg.length)) : 0,
+    brier: test.length > 0 ? round4(brierSum / test.length) : 0,
+  };
+}
+
+/**
+ * The fitted-comps-2 bucket construction, kept as the odds check's control: age-band rates
+ * toward an ever-rate, a category's ever-rate corrected for its age mix. Fitted on one set
+ * of dated protocols, it predicts already-launched as ever-rate x share of launches used.
+ */
+function bucketOddsOn(dated: DatedRow[]): { ever: number; rateAt: (age: number) => number; catEver: (category: string | null) => number } {
+  const globalRate = dated.length > 0 ? dated.filter((x) => recordsToken(x.p)).length / dated.length : 0;
+  const buckets = ODDS_BUCKETS.map(([lo, hi]) => {
+    const inBucket = dated.filter((x) => x.age >= lo && x.age < hi);
+    return {
+      lo,
+      hi,
+      rate: inBucket.length > 0 ? inBucket.filter((x) => recordsToken(x.p)).length / inBucket.length : globalRate,
+    };
+  });
+  const oldest = dated.filter((x) => x.age >= 1460);
+  const ever = oldest.length >= 20 ? oldest.filter((x) => recordsToken(x.p)).length / oldest.length : globalRate;
+  const rateAt = (age: number): number => {
+    const bucket = buckets.find((b) => age >= b.lo && age < b.hi) ?? buckets[buckets.length - 1]!;
+    return bucket.rate;
+  };
+  const shareDone = (age: number): number => (ever > 0 ? clamp(rateAt(age) / ever, 0, 1) : 0);
+  const catEver = (category: string | null): number => {
+    const members = dated.filter((x) => x.p.category === category);
+    let result = ever;
+    if (members.length >= 8) {
+      const rawShare = members.filter((x) => recordsToken(x.p)).length / members.length;
+      const meanDone = members.reduce((s, x) => s + shareDone(x.age), 0) / members.length;
+      if (meanDone > 0.05) {
+        const corrected = clamp(rawShare / meanDone, rawShare, 0.97);
+        const w = members.length / (members.length + 10);
+        result = corrected * w + ever * (1 - w);
+      }
+    }
+    return result;
+  };
+  return { ever, rateAt, catEver };
+}
+
+/**
+ * Hold the odds model out, twice. Date framing: fit on the older half of the dated
+ * protocols (by listed date, ties by slug), call the newer half - the hard test, because
+ * the halves' age ranges barely overlap and the newer half has had less time to launch.
+ * Hash framing: a coin flip on the slug's md5 parity splits the same protocols into
+ * same-aged halves - the balanced test. Both are printed on the page; the headline is the
+ * date framing. The bucket control runs on the date framing only.
+ */
+export function oddsCheck(snapshot: Snapshot): OddsCheck {
+  const dated = datedRows(snapshot);
+  const byDate = [...dated].sort((a, b) => (a.p.listed_at! < b.p.listed_at! ? -1 : a.p.listed_at! > b.p.listed_at! ? 1 : a.p.slug < b.p.slug ? -1 : 1));
+  const half = Math.floor(byDate.length / 2);
+  const dateTrain = byDate.slice(0, half);
+  const dateTest = byDate.slice(half);
+  const dateScore = scoreOddsSplit(fitOddsOn(dateTrain), dateTest);
+  const hashBit = (slug: string): number => parseInt(createHash('md5').update(slug, 'utf8').digest('hex').slice(-1), 16) % 2;
+  const hashTrain = dated.filter((x) => hashBit(x.p.slug) === 0);
+  const hashTest = dated.filter((x) => hashBit(x.p.slug) === 1);
+  const hashScore = scoreOddsSplit(fitOddsOn(hashTrain), hashTest);
+  const bm = bucketOddsOn(dateTrain);
+  let bucketCalled = 0;
+  const bucketPreds = dateTest.map((x) => {
+    const done = bm.ever > 0 ? clamp(bm.rateAt(x.age) / bm.ever, 0, 1) : 0;
+    const pAlready = bm.catEver(x.p.category) * done;
+    if ((pAlready >= 0.5) === recordsToken(x.p)) bucketCalled++;
+    return { p: pAlready, y: recordsToken(x.p) ? 1 : 0 };
+  });
+  const bPos = bucketPreds.filter((t) => t.y === 1);
+  const bNeg = bucketPreds.filter((t) => t.y === 0);
+  let bWins = 0;
+  let bTies = 0;
+  for (const a of bPos) {
+    for (const b of bNeg) {
+      if (a.p > b.p) bWins++;
+      else if (a.p === b.p) bTies++;
+    }
+  }
+  return {
+    date: { n: dateTest.length, train_n: dateTrain.length, ...dateScore },
+    hash: { n: hashTest.length, train_n: hashTrain.length, ...hashScore },
+    bucket_date_called_right: dateTest.length > 0 ? round4(bucketCalled / dateTest.length) : 0,
+    bucket_date_auc: bPos.length > 0 && bNeg.length > 0 ? round4((bWins + 0.5 * bTies) / (bPos.length * bNeg.length)) : 0,
   };
 }
 
@@ -1019,7 +1265,7 @@ export interface RadarData {
   fit: { a: number; b: number; comps: number; med_change: number };
   families: FamilyPremium[];
   backtest: Backtest;
-  odds: { ever_global: number; buckets: { lo: number; hi: number; n: number; rate: number }[] };
+  odds: { ever_global: number; buckets: { lo: number; hi: number; n: number; rate: number }[]; b_age: number; b_crate: number; global_rate: number };
   odds_check: OddsCheck;
   stability: Stability;
   totals: {
@@ -1049,20 +1295,20 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const scored = universe.ranked.map((p) => {
     const lv = launchValue(p, fit, model);
     const age = ageDays(snapshot.as_of, p.listed_at);
-    const odds = launchOdds(p, oddsModel, snapshot.as_of, model);
-    const plan = farmPlan(p, lv.value, odds, age, snapshot.as_of, model);
-    return { p, lv, age, odds, plan };
+    const parts = oddsParts(p, oddsModel, snapshot.as_of, model);
+    const plan = farmPlan(p, lv.value, parts.odds, age, snapshot.as_of, model);
+    return { p, lv, age, odds: parts.odds, parts, weighted: lv.value * parts.odds, plan };
   });
-  scored.sort((a, b) => b.lv.value - a.lv.value || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
+  scored.sort((a, b) => b.weighted - a.weighted || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
 
-  const values = scored.map((s) => s.lv.value);
+  const values = scored.map((s) => s.weighted);
   let prev = Number.POSITIVE_INFINITY;
   const board: BoardRow[] = scored.map((s, i) => {
-    let implied = Math.max(1, Math.round(s.lv.value));
+    let implied = Math.max(1, Math.round(s.weighted));
     if (implied >= prev) implied = Math.max(1, prev - 1);
     prev = implied;
-    const bandLow = s.lv.value * backtest.band25[0];
-    const bandHigh = s.lv.value * backtest.band25[1];
+    const bandLow = s.weighted * backtest.band25[0];
+    const bandHigh = s.weighted * backtest.band25[1];
     const breakdown: FactorBreakdown = {
       fwd_tvl_usd: Math.round(s.lv.fwdTvl),
       curve_value_usd: Math.round(s.lv.curveValue),
@@ -1071,8 +1317,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
       family_peers: s.lv.premiumPeers,
       launch_value_usd: Math.round(s.lv.value),
       launch_odds: round4(s.odds),
-      odds_ever: round4(oddsModel.catEver(s.p.category)),
-      odds_done: round4(oddsModel.ever_global > 0 ? clamp(oddsModel.rateAt(s.age ?? 365) / oddsModel.ever_global, 0, 1) : 0),
+      odds_ever: round4(s.parts.ever),
+      odds_done: round4(s.parts.done),
       band_low_usd: Math.round(bandLow),
       band_high_usd: Math.round(bandHigh),
       rank_low: 1 + values.filter((v) => v > bandHigh).length,
@@ -1105,7 +1351,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): {
     };
   });
   void watchlist;
-  const stability = refitStability(universe.comps, universe.ranked, board.slice(0, 20).map((r) => r.slug), snapshot.as_of, model);
+  const oddsBySlug = new Map(scored.map((s) => [s.p.slug, s.odds]));
+  const stability = refitStability(universe.comps, universe.ranked, board.slice(0, 20).map((r) => r.slug), snapshot.as_of, model, (p) => oddsBySlug.get(p.slug) ?? 1);
   return { board, universe, fit, backtest, oddsModel, stability };
 }
 
@@ -1165,7 +1412,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     fit: { a: round4(fit.curve.a), b: round4(fit.curve.b), comps: universe.comps.length, med_change: round2(fit.medChange) },
     families: [...fit.premiums.values()].sort((a, b) => b.peers - a.peers).map((f) => ({ family: f.family, peers: f.peers, raw: round4(f.raw), adj: round4(f.adj) })),
     backtest,
-    odds: { ever_global: oddsModel.ever_global, buckets: oddsModel.buckets },
+    odds: { ever_global: oddsModel.ever_global, buckets: oddsModel.buckets, b_age: round4(oddsModel.fit.b1), b_crate: round4(oddsModel.fit.b2), global_rate: round4(oddsModel.fit.global_rate) },
     odds_check: oddsCheck(snapshot),
     stability,
     totals: {
